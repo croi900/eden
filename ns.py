@@ -173,14 +173,14 @@ class NestedSampler:
             _SAMPLES_FILE = self.samples_file
             _FILE_LOCK = threading.Lock()
             pool_size = getattr(self.pool, "_processes", None) or self.nthreads
-            sampler = dynesty.DynamicNestedSampler(
+            sampler = dynesty.NestedSampler(
                 self.log_likelihood,
                 self.prior_transform,
                 pool=self.pool,
                 queue_size=pool_size,
                 **sampler_kwargs,
             )
-            sampler.run_nested(wt_kwargs={"pfrac": 1.0}, print_progress=True)
+            sampler.run_nested(dlogz=self.dlogz, print_progress=True)
 
         elif self.nthreads > 1:
             with mp.Pool(
@@ -188,25 +188,25 @@ class NestedSampler:
                 initializer=_worker_init,
                 initargs=(self.model.model_name, self.samples_file),
             ) as pool:
-                sampler = dynesty.DynamicNestedSampler(
+                sampler = dynesty.NestedSampler(
                     self.log_likelihood,
                     self.prior_transform,
                     pool=pool,
                     queue_size=self.nthreads,
                     **sampler_kwargs,
                 )
-                sampler.run_nested(wt_kwargs={"pfrac": 1.0}, print_progress=True)
+                sampler.run_nested(dlogz=self.dlogz, print_progress=True)
 
         else:
             _GLOBAL_MODEL = self.model
             _SAMPLES_FILE = self.samples_file
             _FILE_LOCK = threading.Lock()
-            sampler = dynesty.DynamicNestedSampler(
+            sampler = dynesty.NestedSampler(
                 self.log_likelihood,
                 self.prior_transform,
                 **sampler_kwargs,
             )
-            sampler.run_nested(wt_kwargs={"pfrac": 1.0}, print_progress=True)
+            sampler.run_nested(dlogz=self.dlogz, print_progress=True)
 
         results = sampler.results
         self._print_summary(results)
