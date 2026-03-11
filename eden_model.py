@@ -131,7 +131,7 @@ class LinearModel(BaseEDEModel):
     model_name = "Linear"
     dynamical_a = True
     PRIORS = {
-        "rho0_MeV4": ((-20.0, -10.0), "log"),
+        "rho0_MeV4": ((-30.0, -2.0), "log"),
         "w": ((-1.0, 0.0), "lin"),
         **BBN_NUISANCE,
     }
@@ -169,9 +169,11 @@ class LinearModel(BaseEDEModel):
 class PolytropicModel(BaseEDEModel):
     model_name = "Polytropic"
     dynamical_a = True
+    # Polytropic/Chaplygin-like EoS: p = K rho^gamma. K in MeV^{4(1-gamma)}; gamma != 1.
+    # Physical: K < 0 typical for positive energy; gamma in (0.6, 1.5) avoids singularity at gamma=1.
     PRIORS = {
         "K": ((-10.0, 0.0), "lin"),
-        "gamma": ((0.5, 3.0), "lin"),
+        "gamma": ((0.6, 1.5), "lin"),
         **BBN_NUISANCE,
     }
 
