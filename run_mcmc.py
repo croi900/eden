@@ -42,7 +42,7 @@ def main():
     )
     args = parser.parse_args()
 
-    model  = make_model(args.model)
+    model = make_model(args.model)
     # Build priors dict for MCMC in the format it expects: name -> (lo, hi[, "log"])
     priors = {}
     for name, (bounds, scale) in model.PRIORS.items():

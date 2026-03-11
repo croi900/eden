@@ -22,7 +22,6 @@ Li7oH_sig = 0.3
 
 
 class MCMC:
-
     def __init__(
         self, model, priors, nsteps=10000, nwalkers=16, nthreads=16, use_Li7=False
     ):
