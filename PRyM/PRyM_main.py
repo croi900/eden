@@ -459,6 +459,9 @@ class PRyMclass(object):
         dynamical_a = PRyMini.dynamical_a_flag
         if dynamical_a:
             # We already have a_vec from the main thermodynamic ODE
+            if np.any(Tg_vec <= 0):
+                raise ValueError("FAH")
+
             sol_lnT = np.log(Tg_vec)
             sol_lna = np.log(a_vec)
             # Reverse order so T is increasing for interpolation
@@ -529,6 +532,8 @@ class PRyMclass(object):
         def a_of_T(T):
             # Including non-instantaneous decoupling effects or dynamical EDE a(T)
             if PRyMini.aTid_flag or dynamical_a:
+                if T <= 0:
+                    raise ValueError("FAH")
                 return np.exp(lnalnT(np.log(T)))
             # Using instantaneous approximation
             else:
@@ -542,6 +547,11 @@ class PRyMclass(object):
         a_of_t = interp1d(
             t_vec[:], a_of_T_vec(Tg_vec), bounds_error=False, fill_value=(a_in, a_fin)
         )
+        # Expose background evolution for external analysis
+        self.a_of_t = a_of_t
+        self._t_vec = t_vec
+        self._Tg_vec = Tg_vec
+        self._a_vec = a_of_T_vec(Tg_vec)
 
         ##########################################
         # Baryon density for the nuclear network #

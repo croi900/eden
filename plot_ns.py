@@ -532,7 +532,7 @@ def plot_3d_scatter(run_dir: Path, plot_dir: Path, meta: dict) -> None:
 
 
 # ===========================================================================
-#  4. Abundance corner (Yp, D/H, He3/H, Li7/H from posterior; no SBBN overlays)
+#  4. Abundance corner (posterior vs SBBN overlay)
 # ===========================================================================
 
 # Always plot all four abundances (Li7 included even if not used in NS)
@@ -545,6 +545,29 @@ ABD_LABELS = [
     r"^7\mathrm{Li}/\mathrm{H}",
 ]
 N_ABD = 4
+
+
+def _load_sbbn_abundances() -> np.ndarray | None:
+    """
+    Load SBBN abundances from sbbn_samples.csv (if present).
+
+    Expected columns (see generate_sbbn.py):
+      tau_n, Omegabh2, p_npdg, p_dpHe3g, Yp, DoH, He3oH, Li7oH
+    Returns array of shape (Ns, 4) with [Yp, DoH, He3oH, Li7oH].
+    """
+    root = Path(__file__).resolve().parent
+    fn = root / "sbbn_samples.csv"
+    if not fn.exists():
+        return None
+    try:
+        data = np.loadtxt(fn, comments="#", delimiter=",")
+        if data.ndim == 1:
+            data = data[np.newaxis, :]
+        if data.shape[1] < 8:
+            return None
+        return data[:, 4:8]
+    except Exception:
+        return None
 
 
 def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
@@ -575,36 +598,63 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
     active_cols = [0, 1, 2, 3]
     abd = mapped_abundances[:, active_cols]
 
+    # Optional SBBN overlay (same abundance ordering)
+    abd_sbbn = _load_sbbn_abundances()
+
     if HAS_GETDIST:
         try:
             # Slight extra smoothing for 1D and 2D (not a lot)
-            mc = MCSamples(
-                samples=abd,
-                names=ABD_NAMES,
-                labels=ABD_LABELS,
-                label=model_name,
-                settings={"smooth_scale_2D": 0.5, "smooth_scale_1D": 0.5},
+            mcs = []
+            labels = []
+            if abd_sbbn is not None:
+                mcs.append(
+                    MCSamples(
+                        samples=abd_sbbn,
+                        names=ABD_NAMES,
+                        labels=ABD_LABELS,
+                        label="SBBN",
+                        settings={"smooth_scale_2D": 0.5, "smooth_scale_1D": 0.5},
+                    )
+                )
+                labels.append("SBBN")
+            mcs.append(
+                MCSamples(
+                    samples=abd,
+                    names=ABD_NAMES,
+                    labels=ABD_LABELS,
+                    label=model_name,
+                    settings={"smooth_scale_2D": 0.5, "smooth_scale_1D": 0.5},
+                )
             )
+            labels.append(model_name)
+
             with plt.style.context("default"):
                 g = gdplots.getSubplotPlotter(width_inch=3 * N_ABD)
                 g.settings.axes_fontsize = 20
                 g.settings.axes_labelsize = 24
                 g.settings.lab_fontsize = 24
-                g.settings.solid_colors = ["#1f77b4"]
+                # SBBN in red, NP in blue
+                g.settings.solid_colors = ["#d62728", "#1f77b4"]
                 g.settings.num_plot_contours = 2
-                g.triangle_plot([mc], filled=True)
+                g.settings.figure_legend_loc = "upper right"
+                g.triangle_plot(mcs, filled=True, legend_labels=labels)
             gfig = g.fig
-            for ax in gfig.axes:
-                leg = ax.get_legend()
-                if leg is not None:
-                    leg.set_visible(False)
-            # Mean ± sigma above each 1D marginal on the main diagonal only
+            # Mean ± sigma above each 1D marginal on the main diagonal only (NP samples only)
             means = np.mean(abd, axis=0)
             sigmas = np.std(abd, axis=0)
             for i in range(N_ABD):
                 diag_ax = g.subplots[i][i]  # diagonal 1D panel for param i
                 txt = f"{means[i]:.3g} $\\pm$ {sigmas[i]:.3g}"
-                diag_ax.text(0.5, 1.08, txt, transform=diag_ax.transAxes, ha="center", va="top", fontsize=15, clip_on=False)
+                diag_ax.text(
+                    0.5,
+                    1.08,
+                    txt,
+                    transform=diag_ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=15,
+                    clip_on=False,
+                )
             stem = "abundance_corner"
             for ext in PLOT_EXTENSIONS:
                 out = plot_dir / (stem + ext)
@@ -613,17 +663,21 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
             plt.close(gfig)
         except Exception as exc:
             print(f"  [WARNING] GetDist abundance corner failed: {exc}, using matplotlib fallback")
-            _plot_abundance_corner_matplotlib(abd, model_name, plot_dir)
+            _plot_abundance_corner_matplotlib(abd, model_name, plot_dir, abd_sbbn)
     else:
-        _plot_abundance_corner_matplotlib(abd, model_name, plot_dir)
+        _plot_abundance_corner_matplotlib(abd, model_name, plot_dir, abd_sbbn)
 
 
 def _plot_abundance_corner_matplotlib(
     abd: np.ndarray,
     model_name: str,
     plot_dir: Path,
+    abd_sbbn: np.ndarray | None = None,
 ) -> None:
-    """Matplotlib-only abundance corner with KDE smoothing (fallback when GetDist unavailable)."""
+    """Matplotlib-only abundance corner with KDE smoothing (fallback when GetDist unavailable).
+
+    Blue: posterior abundances; optional red overlay: SBBN samples.
+    """
     from scipy.stats import gaussian_kde
 
     n_abd = abd.shape[1]
@@ -645,8 +699,10 @@ def _plot_abundance_corner_matplotlib(
                 continue
             xdata = abd[:, col]
             ydata = abd[:, row]
+            x_sbbn = abd_sbbn[:, col] if abd_sbbn is not None else None
+            y_sbbn = abd_sbbn[:, row] if abd_sbbn is not None else None
             if row == col:
-                # Smoothed 1D: KDE
+                # Smoothed 1D: KDE – NP in blue
                 try:
                     kde = gaussian_kde(xdata, bw_method=0.2)
                     x_min, x_max = xdata.min(), xdata.max()
@@ -655,12 +711,27 @@ def _plot_abundance_corner_matplotlib(
                     ax.fill_between(xs, kde(xs), alpha=0.8, color="#1f77b4", edgecolor="none")
                 except Exception:
                     ax.hist(xdata, bins=40, density=True, color="#1f77b4", alpha=0.8, edgecolor="none")
+                # Optional SBBN 1D KDE in red (no mean/std text)
+                if x_sbbn is not None:
+                    try:
+                        kde_s = gaussian_kde(x_sbbn, bw_method=0.2)
+                        xs_s = np.linspace(x_sbbn.min(), x_sbbn.max(), 200)
+                        ax.plot(xs_s, kde_s(xs_s), color="#d62728", lw=1.5, alpha=0.9)
+                    except Exception:
+                        ax.hist(
+                            x_sbbn,
+                            bins=40,
+                            density=True,
+                            histtype="step",
+                            color="#d62728",
+                            alpha=0.9,
+                        )
                 mean, sigma = np.mean(xdata), np.std(xdata)
                 ax.text(0.5, 1.08, f"{mean:.3g} $\\pm$ {sigma:.3g}", transform=ax.transAxes, ha="center", va="top", fontsize=15, clip_on=False)
                 if col == 0:
                     ax.set_ylabel("density", fontsize=lab_fs)
             else:
-                # Smoothed 2D: KDE on grid
+                # Smoothed 2D: KDE on grid – NP in blue
                 try:
                     kde2 = gaussian_kde(np.vstack([xdata, ydata]), bw_method=0.25)
                     x_min, x_max = xdata.min(), xdata.max()
@@ -674,6 +745,17 @@ def _plot_abundance_corner_matplotlib(
                     ax.contourf(X, Y, Z, levels=12, cmap="Blues", alpha=0.8)
                 except Exception:
                     ax.scatter(xdata, ydata, c="#1f77b4", s=2.5, alpha=0.3, linewidths=0)
+                # Optional SBBN 2D contours in red
+                if x_sbbn is not None and y_sbbn is not None:
+                    try:
+                        kde2s = gaussian_kde(np.vstack([x_sbbn, y_sbbn]), bw_method=0.25)
+                        xs_s = np.linspace(x_sbbn.min(), x_sbbn.max(), 60)
+                        ys_s = np.linspace(y_sbbn.min(), y_sbbn.max(), 60)
+                        Xs, Ys = np.meshgrid(xs_s, ys_s)
+                        Zs = kde2s(np.vstack([Xs.ravel(), Ys.ravel()])).reshape(Xs.shape)
+                        ax.contour(Xs, Ys, Zs, levels=4, colors="#d62728", linewidths=1.0, alpha=0.9)
+                    except Exception:
+                        ax.scatter(x_sbbn, y_sbbn, c="#d62728", s=2.0, alpha=0.4, linewidths=0)
             if row == n_abd - 1:
                 ax.set_xlabel(labels[col], fontsize=lab_fs)
             else:

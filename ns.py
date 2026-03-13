@@ -121,9 +121,13 @@ class NestedSampler:
             res = model.abundances(*physical)  # ty:ignore[unresolved-attribute]
             Yp, DoH, He3oH, Li7oH = res[4], res[5], res[6], res[7]
         except Exception:
+            print(f"Error in log_likelihood: {traceback.format_exc()}")
+            sys.stdout.flush()
             return -1e300
 
         if not (0.0 < Yp < 1.0):
+            print(f"Yp out of bounds: {Yp}")
+            sys.stdout.flush()
             return -1e300
 
         chi2 = (
@@ -427,9 +431,21 @@ def main() -> None:
         default="runs",
         help="Base directory for run outputs (default: runs/)",
     )
+    parser.add_argument(
+        "--poly-gamma",
+        type=float,
+        default=1.0,
+        help="Fixed polytropic gamma (only used if --model=Polytropic)",
+    )
     args = parser.parse_args()
 
     model = make_model(args.model)
+
+    # For Polytropic, use a fixed gamma set via CLI flag (priors are C, K only)
+    if args.model == "Polytropic":
+        import PRyM.PRyM_init as PRyMini
+
+        PRyMini.gamma = float(args.poly_gamma)
     ns = NestedSampler(
         model,
         nlive=args.nlive,

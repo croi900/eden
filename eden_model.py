@@ -157,7 +157,7 @@ class LinearModel(BaseEDEModel):
         return getattr(self, "_w", PRyMini.w) * self.rho_EDE(T, a)
 
     def drho_NP_dT(self, T, a=None) -> float:
-        return 0.0
+        return  0
 
     def metadata(self) -> dict:
         d = super().metadata()
@@ -169,36 +169,70 @@ class LinearModel(BaseEDEModel):
 class PolytropicModel(BaseEDEModel):
     model_name = "Polytropic"
     dynamical_a = True
-    # Polytropic/Chaplygin-like EoS: p = K rho^gamma. K in MeV^{4(1-gamma)}; gamma != 1.
-    # Physical: K < 0 typical for positive energy; gamma in (0.6, 1.5) avoids singularity at gamma=1.
+    # Polytropic/Chaplygin-like EoS with fixed gamma (set via PRyMini.gamma):
+    #   p = K rho^gamma,  rho(a) determined by (C, K, gamma).
+    # We now sample (C, K) while gamma is a fixed PRyMini flag.
+    # To avoid the nested sampler wandering into regions with pathological
+    # backgrounds (rho_EDE huge or complex), keep C positive and K mildly
+    # negative so EDE remains a small perturbation.
     PRIORS = {
-        "K": ((-10.0, 0.0), "lin"),
-        "gamma": ((0.6, 1.5), "lin"),
+        # C = 10^[−6,0] ∈ [1e−6,1], strictly positive
+        "C": ((-30.0, -1.0), "log"),
+        # K ∈ [−1,0], modestly negative
+        "K": ((-1.0, 1.0), "lin"),
         **BBN_NUISANCE,
     }
 
-    def configure(self, K, gamma, tau_n, Omegabh2, p_npdg, p_dpHe3g):  # ty:ignore[invalid-method-override]
+    def configure(self, C, K, tau_n, Omegabh2, p_npdg, p_dpHe3g):  # ty:ignore[invalid-method-override]
         self._configure_prym_flags()
         PRyMini.model = "Polytropic"  # ty:ignore[invalid-assignment]
+        self._C = C
         self._K = K
-        self._gamma = gamma
         PRyMini.K = K
-        PRyMini.gamma = gamma
         self._configure_nuisance(tau_n, Omegabh2, p_npdg, p_dpHe3g)
 
     def rho_EDE(self, Tg, a) -> float:
         # Polytropic EoS: generalized Chaplygin-like dark energy
         if a is None:
             return 0.0
+        C = getattr(self, "_C", getattr(PRyMini, "C", 0.0))
         K = getattr(self, "_K", PRyMini.K)
-        gamma = getattr(self, "_gamma", PRyMini.gamma)
-        rho0 = PRyMini.rho0_MeV4
-        C = 1.0 / (rho0 ** (1.0 - gamma)) + K
-        return (a ** (3.0 / (gamma - 1.0)) / C - K) ** (1.0 / (1.0 - gamma))
+        gamma = PRyMini.gamma
+
+        # Guard against invalid scalar powers that would yield NaN/complex results.
+        # We explicitly check the base and exponent and raise if they are not usable.
+        denom = 1.0 - gamma
+        if denom == 0.0 or not np.isfinite(denom):
+            raise ValueError(f"Invalid gamma={gamma!r} in Polytropic rho_EDE (1-gamma=0).")
+
+        a_power = 3.0 / denom
+        if not np.isfinite(a_power):
+            raise ValueError(f"Invalid a exponent 3/(1-gamma) for gamma={gamma!r}.")
+
+        if a <= 0.0 or not np.isfinite(a):
+            raise ValueError(f"Scale factor a must be positive and finite, got a={a!r}.")
+
+        base = C / (a**a_power) - K
+        exponent = 1.0 / denom
+
+        if not np.isfinite(base) or not np.isfinite(exponent):
+            raise ValueError(
+                f"Non-finite base/exponent in Polytropic rho_EDE: base={base!r}, exponent={exponent!r}"
+            )
+
+        # If the base is negative and the exponent is non-integer, the scalar power
+        # will produce a complex/NaN; treat this as an error so callers can catch it.
+        if base < 0.0 and not np.isclose(exponent, round(exponent)):
+            raise ValueError(
+                f"Invalid scalar power in Polytropic rho_EDE: base={base!r} < 0 with "
+                f"non-integer exponent={exponent!r}."
+            )
+
+        return base**exponent
 
     def p_NP(self, T, a=None) -> float:
         rho = self.rho_EDE(T, a)
-        gamma = getattr(self, "_gamma", PRyMini.gamma)
+        gamma = PRyMini.gamma
         K = getattr(self, "_K", PRyMini.K)
         return K * rho**gamma
 
@@ -207,8 +241,9 @@ class PolytropicModel(BaseEDEModel):
 
     def metadata(self) -> dict:
         d = super().metadata()
+        d["C_default"] = getattr(PRyMini, "C", 0.0)
         d["K_default"] = PRyMini.K
-        d["gamma_default"] = PRyMini.gamma
+        d["gamma_fixed"] = PRyMini.gamma
         return d
 
 
