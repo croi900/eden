@@ -170,6 +170,7 @@ class PRyMordialNode:
         self.models = {
             "CC": make_model("CC"),
             "Linear": make_model("Linear"),
+            "TempDependent": make_model("TempDependent"),
             "Polytropic": make_model("Polytropic"),
         }
 

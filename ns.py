@@ -125,10 +125,10 @@ class NestedSampler:
             sys.stdout.flush()
             return -1e300
 
-        if not (0.0 < Yp < 1.0):
-            print(f"Yp out of bounds: {Yp}")
-            sys.stdout.flush()
-            return -1e300
+        # if not (0.0 < Yp < 1.0):
+        #     print(f"Yp out of bounds: {Yp}")
+        #     sys.stdout.flush()
+        #     return -1e300
 
         chi2 = (
             (Yp - Yp_obs) ** 2 / Yp_sig**2
@@ -354,7 +354,7 @@ class NestedSampler:
         fig.savefig(os.path.join(plot_dir, "abundance_corner.png"))
         plt.close(fig)
 
-        if self.model.model_name in ["Linear", "Polytropic"]:
+        if self.model.model_name != "CC":
             fig, axes = dyplot.cornerplot(results, labels=self.param_names)
             fig.savefig(os.path.join(plot_dir, "params_corner.png"))
             plt.close(fig)
@@ -434,14 +434,14 @@ def main() -> None:
     parser.add_argument(
         "--poly-gamma",
         type=float,
-        default=1.0,
+        default=4.0 / 3.0,
         help="Fixed polytropic gamma (only used if --model=Polytropic)",
     )
     args = parser.parse_args()
 
     model = make_model(args.model)
 
-    # For Polytropic, use a fixed gamma set via CLI flag (priors are C, K only)
+    # For Polytropic, use a fixed gamma set via CLI flag (priors are a_t, rho_t).
     if args.model == "Polytropic":
         import PRyM.PRyM_init as PRyMini
 

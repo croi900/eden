@@ -2,6 +2,7 @@ import numpy as np
 import sys
 import PRyM.PRyM_init as PRyMini
 from PRyM.PRyM_main import PRyMclass
+from eden_model import make_model
 
 
 def run_tests():
@@ -42,17 +43,42 @@ def run_tests():
     else:
         print("PASS: Linear model (w=-1) matches CC")
 
-    print("\n=== Testing Polytropic Model ===")
-    PRyMini.model = "Polytropic"  # ty:ignore[invalid-assignment]
+    print("\n=== Testing Temperature-Dependent Model ===")
+    temp_model = make_model("TempDependent")
+    temp_model.configure(
+        PRyMini.Lambda_MeV4,
+        0.0,
+        PRyMini.tau_n / PRyMini.second,
+        PRyMini.Omegabh2,
+        PRyMini.p_npdg,
+        PRyMini.p_dpHe3g,
+    )
+    temp = PRyMclass(
+        my_rho_NP=temp_model.rho_NP,
+        my_p_NP=temp_model.p_NP,
+        my_drho_NP_dT=temp_model.drho_NP_dT,
+        my_rho_EDE=temp_model.rho_EDE,
+    )
+    temp_Yp = temp.YPBBN()
+    print(f"Temp Yp: {temp_Yp:.5f}, Neff: {temp.Neff_f:.4f}")
+    if not np.isclose(temp_Yp, cc_Yp, rtol=1e-3):
+        print("FAIL: TempDependent(alpha=0) does not match CC")
+    else:
+        print("PASS: TempDependent model (alpha=0) matches CC")
 
-    PRyMini.gamma = 0.5
-    PRyMini.K = 1.0
-    poly = PRyMclass()
+    print("\n=== Testing Polytropic Model ===")
+    PRyMini.gamma = 4.0 / 3.0
+    poly_model = make_model("Polytropic")
+    poly_model.configure(1.0e-8, 1.0e-6, PRyMini.tau_n / PRyMini.second, PRyMini.Omegabh2, PRyMini.p_npdg, PRyMini.p_dpHe3g)
+    poly = PRyMclass(
+        my_rho_NP=poly_model.rho_NP,
+        my_p_NP=poly_model.p_NP,
+        my_drho_NP_dT=poly_model.drho_NP_dT,
+        my_rho_EDE=poly_model.rho_EDE,
+    )
     poly_Yp = poly.YPBBN()
     print(f"Poly Yp: {poly_Yp:.5f}, Neff: {poly.Neff_f:.4f}")
-    print(
-        f"Poly t(1 MeV): {poly.t_of_T(1.0):.3e} s, t(0.1 MeV): {poly.t_of_T(0.1):.3e} s"
-    )
+    print(f"Poly t(1 MeV): {poly.t_of_T(1.0):.3e} s, t(0.1 MeV): {poly.t_of_T(0.1):.3e} s")
     if np.isnan(poly_Yp) or poly_Yp <= 0.0:
         print("FAIL: Polytropic model failed integration")
     else:

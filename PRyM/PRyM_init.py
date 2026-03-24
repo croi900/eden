@@ -126,20 +126,28 @@ julia_flag = False  # if True, requires Julia dependencies
 ########################
 # EDE Models Config    #
 ########################
-# Choose between "CC", "Linear", "Polytropic", or None/""
+# Choose between "CC", "Linear", "Polytropic", "TempDependent", or None/""
 model = ""
 # Cosmological constant density in MeV^4 (for "CC")
 Lambda_MeV4 = 1.0e-22
-# Present-day dark energy density in MeV^4 (for "Linear" and "Polytropic")
+# Present-day dark energy density in MeV^4 (for "Linear" and "TempDependent")
 rho0_MeV4 = 1.0e-22
 # Equation of state parameter w (for "Linear")
 w = -1.0
+# Temperature-dependent EoS coefficient and fixed exponent (for "TempDependent"):
+#   w(T_MeV) = -1 + alpha * T_MeV^beta
+# where the temperature is expressed numerically in MeV.
+alpha = 0.0
+beta = 1.0
 # Polytropic model K parameter in MeV^{4(1-gamma)}
 K = -1.0
+# Polytropic transition scale factor and early-time plateau density
+a_t = 0.0
+rho_t_MeV4 = 0.0
 # Polytropic model gamma parameter
-gamma = 1.0
+gamma = 4.0 / 3.0
 # Set to True for models that require dynamical tracking of the scale factor a(t).
-# Linear and Polytropic models set this True; CC leaves it False.
+# Linear and Polytropic models set this True; CC and TempDependent leave it False.
 # Setting this via the model class avoids hard-coding model-name checks in PRyM_main.
 dynamical_a_flag = False
 

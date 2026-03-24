@@ -141,7 +141,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "model",
         type=str,
-        help="EDE model name (e.g. CC, Linear, Polytropic).",
+        help="EDE model name (e.g. CC, Linear, TempDependent, Polytropic).",
     )
     parser.add_argument(
         "n_samples",

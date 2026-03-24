@@ -166,83 +166,182 @@ class LinearModel(BaseEDEModel):
         return d
 
 
-class PolytropicModel(BaseEDEModel):
-    model_name = "Polytropic"
-    dynamical_a = True
-    # Polytropic/Chaplygin-like EoS with fixed gamma (set via PRyMini.gamma):
-    #   p = K rho^gamma,  rho(a) determined by (C, K, gamma).
-    # We now sample (C, K) while gamma is a fixed PRyMini flag.
-    # To avoid the nested sampler wandering into regions with pathological
-    # backgrounds (rho_EDE huge or complex), keep C positive and K mildly
-    # negative so EDE remains a small perturbation.
+class TempDependentModel(BaseEDEModel):
+    model_name = "TempDependent"
+    dynamical_a = False
     PRIORS = {
-        # C = 10^[−6,0] ∈ [1e−6,1], strictly positive
-        "C": ((-30.0, -1.0), "log"),
-        # K ∈ [−1,0], modestly negative
-        "K": ((-1.0, 1.0), "lin"),
+        "rho0_MeV4": ((-40.0, -12.0), "log"),
+        "alpha": ((0.0, 0.095), "lin"),
         **BBN_NUISANCE,
     }
 
-    def configure(self, C, K, tau_n, Omegabh2, p_npdg, p_dpHe3g):  # ty:ignore[invalid-method-override]
+    @staticmethod
+    def _T0_MeV() -> float:
+        return PRyMini.T0CMB / PRyMini.MeV_to_Kelvin
+
+    def _w_of_T(self, T_MeV: float) -> float:
+        alpha_coeff = getattr(self, "_alpha", getattr(PRyMini, "alpha", 0.0))
+        beta = getattr(self, "_beta", getattr(PRyMini, "beta", 1.0))
+        if not np.isfinite(alpha_coeff) or not np.isfinite(beta):
+            raise ValueError(
+                f"TempDependent model needs finite alpha and beta, got alpha={alpha_coeff!r}, beta={beta!r}"
+            )
+        if T_MeV < 0.0 or not np.isfinite(T_MeV):
+            raise ValueError(f"TempDependent model needs finite non-negative temperature, got T={T_MeV!r}")
+        if alpha_coeff == 0.0:
+            return -1.0
+        return -1.0 + alpha_coeff * T_MeV**beta
+
+    def configure(self, rho0_MeV4, alpha, tau_n, Omegabh2, p_npdg, p_dpHe3g):  # ty:ignore[invalid-method-override]
         self._configure_prym_flags()
-        PRyMini.model = "Polytropic"  # ty:ignore[invalid-assignment]
-        self._C = C
-        self._K = K
-        PRyMini.K = K
+        PRyMini.model = "TempDependent"  # ty:ignore[invalid-assignment]
+        self._rho0 = rho0_MeV4
+        self._alpha = alpha
+        self._beta = getattr(PRyMini, "beta", 1.0)
+        PRyMini.rho0_MeV4 = rho0_MeV4
+        PRyMini.alpha = alpha  # ty:ignore[invalid-assignment]
+        PRyMini.beta = self._beta  # ty:ignore[invalid-assignment]
         self._configure_nuisance(tau_n, Omegabh2, p_npdg, p_dpHe3g)
 
     def rho_EDE(self, Tg, a) -> float:
-        # Polytropic EoS: generalized Chaplygin-like dark energy
-        if a is None:
+        if Tg is None or Tg <= 0.0 or not np.isfinite(Tg):
             return 0.0
-        C = getattr(self, "_C", getattr(PRyMini, "C", 0.0))
-        K = getattr(self, "_K", PRyMini.K)
-        gamma = PRyMini.gamma
 
-        # Guard against invalid scalar powers that would yield NaN/complex results.
-        # We explicitly check the base and exponent and raise if they are not usable.
-        denom = 1.0 - gamma
-        if denom == 0.0 or not np.isfinite(denom):
-            raise ValueError(f"Invalid gamma={gamma!r} in Polytropic rho_EDE (1-gamma=0).")
+        rho0 = getattr(self, "_rho0", PRyMini.rho0_MeV4)
+        alpha_coeff = getattr(self, "_alpha", getattr(PRyMini, "alpha", 0.0))
+        beta = getattr(self, "_beta", getattr(PRyMini, "beta", 1.0))
 
-        a_power = 3.0 / denom
-        if not np.isfinite(a_power):
-            raise ValueError(f"Invalid a exponent 3/(1-gamma) for gamma={gamma!r}.")
-
-        if a <= 0.0 or not np.isfinite(a):
-            raise ValueError(f"Scale factor a must be positive and finite, got a={a!r}.")
-
-        base = C / (a**a_power) - K
-        exponent = 1.0 / denom
-
-        if not np.isfinite(base) or not np.isfinite(exponent):
+        if rho0 == 0.0:
+            return 0.0
+        if rho0 < 0.0 or not np.isfinite(rho0):
+            raise ValueError(f"TempDependent rho0_MeV4 must be non-negative and finite, got {rho0!r}.")
+        if not np.isfinite(alpha_coeff) or not np.isfinite(beta):
             raise ValueError(
-                f"Non-finite base/exponent in Polytropic rho_EDE: base={base!r}, exponent={exponent!r}"
+                f"TempDependent model needs finite alpha and beta, got alpha={alpha_coeff!r}, beta={beta!r}."
             )
 
-        # If the base is negative and the exponent is non-integer, the scalar power
-        # will produce a complex/NaN; treat this as an error so callers can catch it.
-        if base < 0.0 and not np.isclose(exponent, round(exponent)):
+        T0 = self._T0_MeV()
+        if T0 <= 0.0 or not np.isfinite(T0):
+            raise ValueError(f"TempDependent T0 must be positive and finite, got {T0!r}.")
+
+        w_eff = self._w_of_T(Tg)
+        log_rho = np.log(rho0) + 3.0 * (1.0 + w_eff) * (np.log(Tg) - np.log(T0))
+
+        if not np.isfinite(log_rho):
             raise ValueError(
-                f"Invalid scalar power in Polytropic rho_EDE: base={base!r} < 0 with "
-                f"non-integer exponent={exponent!r}."
+                f"Non-finite log rho in TempDependent rho_EDE: rho0={rho0!r}, alpha={alpha_coeff!r}, beta={beta!r}, T={Tg!r}"
+            )
+        if log_rho > 700.0:
+            raise ValueError(
+                f"TempDependent rho_EDE overflow: log_rho={log_rho!r}, rho0={rho0!r}, alpha={alpha_coeff!r}, beta={beta!r}, T={Tg!r}"
             )
 
-        return base**exponent
+        return float(np.exp(log_rho))
 
     def p_NP(self, T, a=None) -> float:
-        rho = self.rho_EDE(T, a)
-        gamma = PRyMini.gamma
-        K = getattr(self, "_K", PRyMini.K)
-        return K * rho**gamma
+        if T is None or T <= 0.0 or not np.isfinite(T):
+            return 0.0
+        return self._w_of_T(T) * self.rho_EDE(T, None)
 
     def drho_NP_dT(self, T, a=None) -> float:
         return 0.0
 
     def metadata(self) -> dict:
         d = super().metadata()
-        d["C_default"] = getattr(PRyMini, "C", 0.0)
-        d["K_default"] = PRyMini.K
+        d["rho0_MeV4_default"] = PRyMini.rho0_MeV4
+        d["alpha_default"] = getattr(PRyMini, "alpha", 0.0)
+        d["beta_fixed"] = getattr(PRyMini, "beta", 1.0)
+        return d
+
+
+class PolytropicModel(BaseEDEModel):
+    model_name = "Polytropic"
+    dynamical_a = True
+    # Physical reparameterization of the polytropic model:
+    #   rho_DE(a) = rho_t * [ (a / a_t)^(3*(gamma-1)) + 1 ]^(1/(1-gamma))
+    # with fixed gamma (via PRyMini.gamma), transition scale factor a_t, and
+    # early-time plateau density rho_t. This enforces the physical K < 0 branch
+    # implicitly and avoids sampling the degenerate integration constants (C, K)
+    # directly.
+    PRIORS = {
+        "a_t": ((-15.0, -2.0), "log"),
+        "rho_t_MeV4": ((-20.0, 5.0), "log"),
+        **BBN_NUISANCE,
+    }
+
+    def configure(self, a_t, rho_t_MeV4, tau_n, Omegabh2, p_npdg, p_dpHe3g):  # ty:ignore[invalid-method-override]
+        self._configure_prym_flags()
+        PRyMini.model = "Polytropic"  # ty:ignore[invalid-assignment]
+        self._a_t = a_t
+        self._rho_t = rho_t_MeV4
+        PRyMini.a_t = a_t  # ty:ignore[invalid-assignment]
+        PRyMini.rho_t_MeV4 = rho_t_MeV4  # ty:ignore[invalid-assignment]
+        self._configure_nuisance(tau_n, Omegabh2, p_npdg, p_dpHe3g)
+
+    def rho_EDE(self, Tg, a) -> float:
+        # Polytropic EoS: generalized Chaplygin-like dark energy
+        if a is None:
+            return 0.0
+        a_t = getattr(self, "_a_t", getattr(PRyMini, "a_t", 0.0))
+        rho_t = getattr(self, "_rho_t", getattr(PRyMini, "rho_t_MeV4", 0.0))
+        gamma = PRyMini.gamma
+
+        # Explicit off switch used by analysis scripts.
+        if a_t == 0.0 and rho_t == 0.0:
+            return 0.0
+
+        denom = 1.0 - gamma
+        if denom == 0.0 or not np.isfinite(denom):
+            raise ValueError(f"Invalid gamma={gamma!r} in Polytropic rho_EDE (1-gamma=0).")
+
+        if a <= 0.0 or not np.isfinite(a):
+            raise ValueError(f"Scale factor a must be positive and finite, got a={a!r}.")
+        if a_t <= 0.0 or not np.isfinite(a_t):
+            raise ValueError(f"Transition scale a_t must be positive and finite, got a_t={a_t!r}.")
+        if rho_t <= 0.0 or not np.isfinite(rho_t):
+            raise ValueError(
+                f"Plateau density rho_t_MeV4 must be positive and finite, got rho_t_MeV4={rho_t!r}."
+            )
+
+        alpha = 3.0 * (gamma - 1.0)
+        exponent = 1.0 / (1.0 - gamma)
+        if not np.isfinite(alpha) or not np.isfinite(exponent):
+            raise ValueError(
+                f"Invalid alpha/exponent in Polytropic rho_EDE: alpha={alpha!r}, exponent={exponent!r}"
+            )
+
+        log_ratio = np.log(a) - np.log(a_t)
+        log_x = alpha * log_ratio
+        softplus = np.log1p(np.exp(-abs(log_x))) + max(log_x, 0.0)
+        log_rho = np.log(rho_t) + exponent * softplus
+
+        if not np.isfinite(log_rho):
+            raise ValueError(
+                f"Non-finite log rho in Polytropic rho_EDE: log_ratio={log_ratio!r}, log_rho={log_rho!r}"
+            )
+
+        return float(np.exp(log_rho))
+
+    def p_NP(self, T, a=None) -> float:
+        rho = self.rho_EDE(T, a)
+        gamma = PRyMini.gamma
+        rho_t = getattr(self, "_rho_t", getattr(PRyMini, "rho_t_MeV4", 0.0))
+        if rho_t == 0.0 and rho == 0.0:
+            return 0.0
+        if rho_t <= 0.0 or not np.isfinite(rho_t):
+            raise ValueError(
+                f"Plateau density rho_t_MeV4 must be positive and finite for pressure, got rho_t_MeV4={rho_t!r}."
+            )
+        k_eff = -(rho_t ** (1.0 - gamma))
+        return k_eff * rho**gamma
+
+    def drho_NP_dT(self, T, a=None) -> float:
+        return 0.0
+
+    def metadata(self) -> dict:
+        d = super().metadata()
+        d["a_t_default"] = getattr(PRyMini, "a_t", 0.0)
+        d["rho_t_MeV4_default"] = getattr(PRyMini, "rho_t_MeV4", 0.0)
         d["gamma_fixed"] = PRyMini.gamma
         return d
 
@@ -250,6 +349,7 @@ class PolytropicModel(BaseEDEModel):
 MODEL_REGISTRY: dict[str, type[BaseEDEModel]] = {
     "CC": CCModel,
     "Linear": LinearModel,
+    "TempDependent": TempDependentModel,
     "Polytropic": PolytropicModel,
 }
 

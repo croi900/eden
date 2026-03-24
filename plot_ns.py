@@ -19,7 +19,7 @@ the run folder.  Each plot is written in three formats: .png, .pdf, .eps.
     samples_3d_weights.*      – 3-D scatter of first three parameters (posterior weight)
     abundance_corner.*        – GetDist corner of Yp, D/H, He3/H, Li7/H with SBBN bands
 
-  For **Linear / Polytropic** models only:
+  For **non-CC** models:
     params_corner_getdist.*   – GetDist triangle of EDE + nuisance params
 """
 
@@ -583,6 +583,7 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
         return
 
     model_name = meta.get("model", run_dir.name)
+    model_label = "Linear w(T)" if model_name == "TempDependent" else model_name
 
     if uw_samples is None:
         N = max(1, int(len(data) * 0.3))
@@ -622,11 +623,11 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
                     samples=abd,
                     names=ABD_NAMES,
                     labels=ABD_LABELS,
-                    label=model_name,
+                    label=model_label,
                     settings={"smooth_scale_2D": 0.5, "smooth_scale_1D": 0.5},
                 )
             )
-            labels.append(model_name)
+            labels.append(model_label)
 
             with plt.style.context("default"):
                 g = gdplots.getSubplotPlotter(width_inch=3 * N_ABD)
@@ -639,6 +640,9 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
                 g.settings.figure_legend_loc = "upper right"
                 g.triangle_plot(mcs, filled=True, legend_labels=labels)
             gfig = g.fig
+            for legend in gfig.legends:
+                for text in legend.get_texts():
+                    text.set_fontsize(text.get_fontsize() * 2)
             # Mean ± sigma above each 1D marginal on the main diagonal only (NP samples only)
             means = np.mean(abd, axis=0)
             sigmas = np.std(abd, axis=0)
@@ -663,9 +667,9 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
             plt.close(gfig)
         except Exception as exc:
             print(f"  [WARNING] GetDist abundance corner failed: {exc}, using matplotlib fallback")
-            _plot_abundance_corner_matplotlib(abd, model_name, plot_dir, abd_sbbn)
+            _plot_abundance_corner_matplotlib(abd, model_label, plot_dir, abd_sbbn)
     else:
-        _plot_abundance_corner_matplotlib(abd, model_name, plot_dir, abd_sbbn)
+        _plot_abundance_corner_matplotlib(abd, model_label, plot_dir, abd_sbbn)
 
 
 def _plot_abundance_corner_matplotlib(
@@ -769,7 +773,7 @@ def _plot_abundance_corner_matplotlib(
 
 
 # ===========================================================================
-#  5. GetDist parameter corner (Linear / Polytropic only)
+#  5. GetDist parameter corner (non-CC models)
 # ===========================================================================
 
 
@@ -803,20 +807,31 @@ def plot_params_corner_getdist(
         w = np.exp(logwt - logwt.max())
         gd_weights = w / w.sum()
 
-    # Apply log10 scaling to the first parameter (Lambda or rho0) as it spans many orders of magnitude
-    if gd_samps.shape[1] > 0:
-        # Ensure strict positivity before log10
-        valid_mask = gd_samps[:, 0] > 0
+    # Apply log10 scaling to positive parameters that span many orders of magnitude.
+    log_param_names = {"Lambda_MeV4", "rho0_MeV4", "a_t", "rho_t_MeV4"}
+    log_indices = [i for i, name in enumerate(gd_names) if name in log_param_names]
+    if log_indices:
+        valid_mask = np.ones(len(gd_samps), dtype=bool)
+        for idx in log_indices:
+            valid_mask &= gd_samps[:, idx] > 0
         if not np.all(valid_mask):
             gd_samps = gd_samps[valid_mask]
             if gd_weights is not None:
                 gd_weights = gd_weights[valid_mask]
+        for idx in log_indices:
+            gd_samps[:, idx] = np.log10(gd_samps[:, idx])
 
-        gd_samps[:, 0] = np.log10(gd_samps[:, 0])
-
+    rho0_label = (
+        r"\log_{10}(\rho_{T,0}~[\mathrm{MeV}^4])"
+        if model_name == "TempDependent"
+        else r"\log_{10}(\rho_0~[\mathrm{MeV}^4])"
+    )
     tex_map = {
         "Lambda_MeV4": r"\log_{10}(\Lambda~[\mathrm{MeV}^4])",
-        "rho0_MeV4": r"\log_{10}(\rho_0~[\mathrm{MeV}^4])",
+        "rho0_MeV4": rho0_label,
+        "alpha": r"\alpha",
+        "a_t": r"\log_{10}(a_t)",
+        "rho_t_MeV4": r"\log_{10}(\rho_t~[\mathrm{MeV}^4])",
         "w": r"w",
         "K": r"K",
         "gamma": r"\gamma",
@@ -899,7 +914,7 @@ def plot_params_corner_getdist(
 #  Dispatcher
 # ===========================================================================
 
-CORNER_MODELS = {"Linear", "Polytropic", "Poly"}
+CORNER_MODELS = {"Linear", "TempDependent", "Polytropic", "Poly"}
 
 
 def process_run(run_dir: Path) -> None:

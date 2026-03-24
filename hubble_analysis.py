@@ -14,6 +14,7 @@ Usage
 -----
   uv run hubble_analysis.py RUN_DIR
   uv run hubble_analysis.py RUN_DIR --force
+  uv run hubble_analysis.py RUN_DIR --poly-gamma 1.333333
 
 Output
 ------
@@ -151,7 +152,11 @@ def build_three_param_sets(
     # SBBN: all EDE params = 0, nuisance = median
     params_sbbn = np.concatenate([np.zeros(n_ede), nuisance_median]).astype(float)
 
-    return np.array([params_95, params_68, params_sbbn]), ["95% CI", "68% CI", "SBBN"]
+    return np.array([params_95, params_68, params_sbbn]), [
+        "95% CI",
+        "68% CI",
+        "SBBN",
+    ]
 
 
 def n_ede_params(model_name: str) -> int:
@@ -161,7 +166,12 @@ def n_ede_params(model_name: str) -> int:
     return make_model(model_name).ndim - 4
 
 
-def compute_background_for_sample(model_name: str, params: np.ndarray):
+def compute_background_for_sample(
+    model_name: str,
+    params: np.ndarray,
+    poly_gamma: float | None = None,
+    case_label: str = "",
+):
     """
     Run PRyM for a single posterior sample and return (t_vec, T_MeV, a_vec, H_vec).
 
@@ -175,39 +185,50 @@ def compute_background_for_sample(model_name: str, params: np.ndarray):
     from PRyM.PRyM_main import PRyMclass
     from eden_model import make_model
 
-    model = make_model(model_name)
-    model.configure(*params)
+    if model_name == "Polytropic" and poly_gamma is not None:
+        PRyMini.gamma = float(poly_gamma)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        solver = PRyMclass(
-            my_rho_NP=model.rho_NP,
-            my_p_NP=model.p_NP,
-            my_drho_NP_dT=model.drho_NP_dT,
-            my_rho_EDE=model.rho_EDE,
-        )
+    try:
+        model = make_model(model_name)
+        model.configure(*params)
 
-    t_vec = np.array(getattr(solver, "_t_vec"))
-    T_MeV = np.array(getattr(solver, "_Tg_vec"))
-    # Use a(t) evaluated on the same time grid
-    a_vec = np.array(solver.a_of_t(t_vec))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            solver = PRyMclass(
+                my_rho_NP=model.rho_NP,
+                my_p_NP=model.p_NP,
+                my_drho_NP_dT=model.drho_NP_dT,
+                my_rho_EDE=model.rho_EDE,
+            )
 
-    # Numerical Hubble H(t) = (1/a) da/dt (in 1/s)
-    # Use central differences where possible
-    da_dt = np.gradient(a_vec, t_vec)
-    H_vec = da_dt / a_vec
+        t_vec = np.array(getattr(solver, "_t_vec"))
+        T_MeV = np.array(getattr(solver, "_Tg_vec"))
+        # Use a(t) evaluated on the same time grid
+        a_vec = np.array(solver.a_of_t(t_vec))
 
-    # Ensure strictly increasing t for later plotting/storage
-    order = np.argsort(t_vec)
-    t_vec = t_vec[order]
-    T_MeV = T_MeV[order]
-    a_vec = a_vec[order]
-    H_vec = H_vec[order]
+        # Numerical Hubble H(t) = (1/a) da/dt (in 1/s)
+        da_dt = np.gradient(a_vec, t_vec)
+        H_vec = da_dt / a_vec
 
-    return t_vec, T_MeV, a_vec, H_vec
+        # Ensure strictly increasing t for later plotting/storage
+        order = np.argsort(t_vec)
+        t_vec = t_vec[order]
+        T_MeV = T_MeV[order]
+        a_vec = a_vec[order]
+        H_vec = H_vec[order]
+
+        return t_vec, T_MeV, a_vec, H_vec
+    except Exception as exc:
+        label_text = case_label or "selected"
+        raise RuntimeError(
+            f"{label_text} parameter set failed in Hubble analysis. "
+            "This script is using the values from summary.txt for the CI cases; "
+            "if those do not integrate to a valid background, this analysis is doomed "
+            "for that run."
+        ) from exc
 
 
-def run_hubble_analysis(run_dir: Path, force: bool) -> None:
+def run_hubble_analysis(run_dir: Path, force: bool, poly_gamma: float | None = None) -> None:
     run_dir = Path(run_dir)
     if not run_dir.is_dir():
         print(f"[ERROR] Not a directory: {run_dir}")
@@ -218,6 +239,20 @@ def run_hubble_analysis(run_dir: Path, force: bool) -> None:
     if not model_name:
         print("[ERROR] No model in metadata.txt; cannot run Hubble analysis.")
         return
+
+    effective_poly_gamma = None
+    if model_name == "Polytropic":
+        gamma_from_meta = meta.get("gamma_fixed")
+        if poly_gamma is not None:
+            effective_poly_gamma = float(poly_gamma)
+        elif gamma_from_meta is not None:
+            effective_poly_gamma = float(gamma_from_meta)
+        else:
+            print(
+                "[ERROR] Polytropic Hubble analysis needs gamma. "
+                "Pass --poly-gamma or provide gamma_fixed in metadata.txt."
+            )
+            return
 
     samples, param_names = load_posterior_unweighted(run_dir)
     if samples is None:
@@ -235,23 +270,35 @@ def run_hubble_analysis(run_dir: Path, force: bool) -> None:
     use_cache = False
     if cache_file.exists() and not force:
         data = np.load(cache_file, allow_pickle=True)
-        if data["a"].shape[0] == 3:
+        gamma_ok = True
+        if model_name == "Polytropic":
+            cache_gamma = float(data["poly_gamma"]) if "poly_gamma" in data else None
+            gamma_ok = cache_gamma is not None and np.isclose(
+                cache_gamma, effective_poly_gamma
+            )
+        if data["a"].shape[0] == 3 and gamma_ok:
             use_cache = True
             t_vec = data["t"]
             T_MeV = data["T_MeV"]
             a = data["a"]
             H = data["H"]
-            labels = list(data["labels"]) if "labels" in data else ["95% UL", "68% UL", "SBBN"]
+            labels = (
+                list(data["labels"])
+                if "labels" in data
+                else ["95% UL", "68% UL", "SBBN"]
+            )
             print(f"  Using cached background from {cache_file.name} ({labels})")
         else:
-            print(f"  Cache has {data['a'].shape[0]} samples (expected 3); recomputing.")
+            print("  Cache mismatch; recomputing.")
 
     if not use_cache:
         print("  Running PRyM for 95% UL, 68% UL, SBBN.")
         from joblib import Parallel, delayed
 
         results = Parallel(n_jobs=3, backend="loky", verbose=10)(
-            delayed(compute_background_for_sample)(model_name, params_three[i])
+            delayed(compute_background_for_sample)(
+                model_name, params_three[i], effective_poly_gamma, labels[i]
+            )
             for i in range(n_cases)
         )
 
@@ -283,11 +330,15 @@ def run_hubble_analysis(run_dir: Path, force: bool) -> None:
             params=params_three,
             param_names=np.array(param_list),
             labels=np.array(labels),
+            poly_gamma=effective_poly_gamma if effective_poly_gamma is not None else np.nan,
         )
         print(f"  → {cache_file.name} (3 curves, n_t={n_t})")
 
     # Legend: include all EDE parameter names and values in LaTeX in parentheses
-    params_for_legend = data["params"] if use_cache else params_three
+    # Always use freshly reconstructed parameter values for legend text, even if
+    # the background curves themselves come from cache. This avoids stale legend
+    # labels after formatting/selection logic changes.
+    params_for_legend = params_three
     n_ede = n_ede_params(model_name)
     ede_names = param_list[:n_ede]
 
@@ -295,18 +346,29 @@ def run_hubble_analysis(run_dir: Path, force: bool) -> None:
         if name == "Lambda_MeV4":
             return r"\Lambda"
         if name == "rho0_MeV4":
-            return r"\rho_0"
+            if model_name == "TempDependent":
+                return r"\rho_{T,0}"
+            return r"\rho_{\mathrm{DE},0}"
+        if name == "alpha":
+            return r"\alpha"
+        if name == "a_t":
+            return r"a_t"
+        if name == "rho_t_MeV4":
+            return r"\rho_t"
         return name
 
-    def _fmt_val_tex(x: float, mev4: bool) -> str:
-        # Exact zero: just "0" (no scientific notation)
-        if np.isclose(x, 0.0, atol=1e-14, rtol=0.0):
+    def _fmt_val_tex(name: str, x: float) -> str:
+        # Only exact zero should render as "0"; tiny nonzero values must keep
+        # their scientific notation (e.g. 1e-17 should not become 0).
+        if x == 0.0:
             base = "0"
+        elif name in {"w", "alpha"}:
+            base = f"{x:.4f}".rstrip("0").rstrip(".")
         else:
             exp = int(np.floor(np.log10(abs(x))))
             mant = x / (10.0**exp)
             base = rf"{mant:.2f}\times 10^{{{exp}}}"
-        if mev4:
+        if name.endswith("MeV4"):
             return rf"{base}\,[\mathrm{{MeV}}^4]"
         return base
 
@@ -320,7 +382,7 @@ def run_hubble_analysis(run_dir: Path, force: bool) -> None:
         for j in range(n_ede):
             name = ede_names[j]
             name_tex = _latex_param_name(name)
-            val_tex = _fmt_val_tex(params_for_legend[i, j], mev4=name.endswith("MeV4"))
+            val_tex = _fmt_val_tex(name, params_for_legend[i, j])
             parts.append(rf"${name_tex} = {val_tex}$")
         display_labels.append(f"{labels[i]} ({', '.join(parts)})")
 
@@ -429,8 +491,14 @@ def main() -> None:
         action="store_true",
         help="Recompute background even if hubble_background.npz exists.",
     )
+    parser.add_argument(
+        "--poly-gamma",
+        type=float,
+        default=None,
+        help="Fixed polytropic gamma override (used if the run model is Polytropic).",
+    )
     args = parser.parse_args()
-    run_hubble_analysis(Path(args.run_dir), force=args.force)
+    run_hubble_analysis(Path(args.run_dir), force=args.force, poly_gamma=args.poly_gamma)
     print("\n✓ Done.")
 
 
