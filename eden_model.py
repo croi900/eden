@@ -63,7 +63,6 @@ class BaseEDEModel:
         return 0.0
 
     def rho_EDE(self, Tg, a) -> float:
-        # Non-interacting dark energy; only enters Hubble(). Override in subclasses.
         return 0.0
 
     def configure(self, *params):
@@ -112,7 +111,6 @@ class CCModel(BaseEDEModel):
         self._configure_nuisance(tau_n, Omegabh2, p_npdg, p_dpHe3g)
 
     def rho_EDE(self, Tg, a) -> float:
-        # CC: energy density is constant regardless of a
         return getattr(self, "_Lambda_MeV4", PRyMini.Lambda_MeV4)
 
     def p_NP(self, T, a=None) -> float:
@@ -146,7 +144,6 @@ class LinearModel(BaseEDEModel):
         self._configure_nuisance(tau_n, Omegabh2, p_npdg, p_dpHe3g)
 
     def rho_EDE(self, Tg, a) -> float:
-        # Linear EoS: rho(a) = rho0 * a^{-3(1+w)}
         if a is None:
             return 0.0
         rho0 = getattr(self, "_rho0", PRyMini.rho0_MeV4)
@@ -157,7 +154,7 @@ class LinearModel(BaseEDEModel):
         return getattr(self, "_w", PRyMini.w) * self.rho_EDE(T, a)
 
     def drho_NP_dT(self, T, a=None) -> float:
-        return  0
+        return 0
 
     def metadata(self) -> dict:
         d = super().metadata()
@@ -187,7 +184,9 @@ class TempDependentModel(BaseEDEModel):
                 f"TempDependent model needs finite alpha and beta, got alpha={alpha_coeff!r}, beta={beta!r}"
             )
         if T_MeV < 0.0 or not np.isfinite(T_MeV):
-            raise ValueError(f"TempDependent model needs finite non-negative temperature, got T={T_MeV!r}")
+            raise ValueError(
+                f"TempDependent model needs finite non-negative temperature, got T={T_MeV!r}"
+            )
         if alpha_coeff == 0.0:
             return -1.0
         return -1.0 + alpha_coeff * T_MeV**beta
@@ -214,7 +213,9 @@ class TempDependentModel(BaseEDEModel):
         if rho0 == 0.0:
             return 0.0
         if rho0 < 0.0 or not np.isfinite(rho0):
-            raise ValueError(f"TempDependent rho0_MeV4 must be non-negative and finite, got {rho0!r}.")
+            raise ValueError(
+                f"TempDependent rho0_MeV4 must be non-negative and finite, got {rho0!r}."
+            )
         if not np.isfinite(alpha_coeff) or not np.isfinite(beta):
             raise ValueError(
                 f"TempDependent model needs finite alpha and beta, got alpha={alpha_coeff!r}, beta={beta!r}."
@@ -222,7 +223,9 @@ class TempDependentModel(BaseEDEModel):
 
         T0 = self._T0_MeV()
         if T0 <= 0.0 or not np.isfinite(T0):
-            raise ValueError(f"TempDependent T0 must be positive and finite, got {T0!r}.")
+            raise ValueError(
+                f"TempDependent T0 must be positive and finite, got {T0!r}."
+            )
 
         w_eff = self._w_of_T(Tg)
         log_rho = np.log(rho0) + 3.0 * (1.0 + w_eff) * (np.log(Tg) - np.log(T0))
@@ -257,12 +260,7 @@ class TempDependentModel(BaseEDEModel):
 class PolytropicModel(BaseEDEModel):
     model_name = "Polytropic"
     dynamical_a = True
-    # Physical reparameterization of the polytropic model:
-    #   rho_DE(a) = rho_t * [ (a / a_t)^(3*(gamma-1)) + 1 ]^(1/(1-gamma))
-    # with fixed gamma (via PRyMini.gamma), transition scale factor a_t, and
-    # early-time plateau density rho_t. This enforces the physical K < 0 branch
-    # implicitly and avoids sampling the degenerate integration constants (C, K)
-    # directly.
+
     PRIORS = {
         "a_t": ((-15.0, -2.0), "log"),
         "rho_t_MeV4": ((-20.0, 10.0), "log"),
@@ -279,25 +277,29 @@ class PolytropicModel(BaseEDEModel):
         self._configure_nuisance(tau_n, Omegabh2, p_npdg, p_dpHe3g)
 
     def rho_EDE(self, Tg, a) -> float:
-        # Polytropic EoS: generalized Chaplygin-like dark energy
         if a is None:
             return 0.0
         a_t = getattr(self, "_a_t", getattr(PRyMini, "a_t", 0.0))
         rho_t = getattr(self, "_rho_t", getattr(PRyMini, "rho_t_MeV4", 0.0))
         gamma = PRyMini.gamma
 
-        # Explicit off switch used by analysis scripts.
         if a_t == 0.0 and rho_t == 0.0:
             return 0.0
 
         denom = 1.0 - gamma
         if denom == 0.0 or not np.isfinite(denom):
-            raise ValueError(f"Invalid gamma={gamma!r} in Polytropic rho_EDE (1-gamma=0).")
+            raise ValueError(
+                f"Invalid gamma={gamma!r} in Polytropic rho_EDE (1-gamma=0)."
+            )
 
         if a <= 0.0 or not np.isfinite(a):
-            raise ValueError(f"Scale factor a must be positive and finite, got a={a!r}.")
+            raise ValueError(
+                f"Scale factor a must be positive and finite, got a={a!r}."
+            )
         if a_t <= 0.0 or not np.isfinite(a_t):
-            raise ValueError(f"Transition scale a_t must be positive and finite, got a_t={a_t!r}.")
+            raise ValueError(
+                f"Transition scale a_t must be positive and finite, got a_t={a_t!r}."
+            )
         if rho_t <= 0.0 or not np.isfinite(rho_t):
             raise ValueError(
                 f"Plateau density rho_t_MeV4 must be positive and finite, got rho_t_MeV4={rho_t!r}."

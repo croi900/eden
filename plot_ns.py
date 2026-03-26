@@ -1,28 +1,3 @@
-"""
-plot_ns.py  –  Post-processing & plotting for Eden nested-sampling runs
-=======================================================================
-Usage
------
-  uv run plot_ns.py [run_dir ...]
-
-If no arguments are given, every sub-directory of `runs/` that contains
-a `summary.txt` is processed automatically.
-
-Output
-------
-For every run a sub-directory `plots/` is created (or re-created) inside
-the run folder.  Each plot is written in three formats: .png, .pdf, .eps.
-
-  For **all** models:
-    summary_runplot.*         – evidence / sampling statistics (dynesty.plotting)
-    trace_plot.*              – trace plot of first parameter vs logL
-    samples_3d_weights.*      – 3-D scatter of first three parameters (posterior weight)
-    abundance_corner.*        – GetDist corner of Yp, D/H, He3/H, Li7/H with SBBN bands
-
-  For **non-CC** models:
-    params_corner_getdist.*   – GetDist triangle of EDE + nuisance params
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -39,27 +14,20 @@ import matplotlib.pyplot as plt
 import matplotlib.text as mtext
 import numpy as np
 from matplotlib.patches import Patch
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 – needed for 3-D projection
-from scipy.spatial import cKDTree
+from mpl_toolkits.mplot3d import Axes3D
+from scipy.spatial import cKDTree  # ty:ignore[unresolved-import]
 
 import dynesty
 from dynesty import plotting as dyplot
 
-# ---------------------------------------------------------------------------
-#  Optional imports
-# ---------------------------------------------------------------------------
 try:
     from getdist import MCSamples, plots as gdplots
 
     HAS_GETDIST = True
 except ImportError:
     HAS_GETDIST = False
-    print("[WARNING] getdist not found – parameter corner via GetDist skipped.")
+    print("[WARNING] getdist not found   parameter corner via GetDist skipped.")
 
-
-# ---------------------------------------------------------------------------
-#  Palette and Observational data (SBBN-era measurements)
-# ---------------------------------------------------------------------------
 PALETTE = [
     "#1f77b4",
     "#ff7f0e",
@@ -78,17 +46,11 @@ TRUTH_COLOR = "#ff7f0e"
 BAND_ALPHA = 0.20
 
 OBS = {
-    # name : (central, sigma, display_label)
     "Yp": (0.245, 0.003, r"$Y_P$ (PDG)"),
     "DoH": (2.547, 0.029, r"$D/H \times 10^5$ (PDG)"),
     "He3oH": (1.08, 0.12, r"$^3He/H \times 10^5$ (Bania+02)"),
     "Li7oH": (1.6, 0.3, r"$^7Li/H \times 10^{10}$ (Sbordone+10)"),
 }
-
-
-# ===========================================================================
-#  Helpers
-# ===========================================================================
 
 
 def _mk_plotdir(run_dir: Path) -> Path:
@@ -97,7 +59,6 @@ def _mk_plotdir(run_dir: Path) -> Path:
     return pd
 
 
-# Output formats for all plots
 PLOT_EXTENSIONS = (".png", ".pdf", ".eps")
 
 
@@ -112,33 +73,27 @@ def _save(fig: plt.Figure, path: Path, tight: bool = True) -> None:
     for ext in PLOT_EXTENSIONS:
         out = path.parent / (stem + ext)
         fig.savefig(out, dpi=150, bbox_inches="tight", facecolor="white")
-        print(f"  → {out.name}")
+        print(f"    {out.name}")
     plt.close(fig)
 
 
 class DummyResults(dict):
-    """Mock dynesty.results.Results object to feed into dyplot."""
-
     def __init__(self, samples, logwt, logl):
         super().__init__()
         self["samples"] = samples
         self["logwt"] = logwt
         self["logl"] = logl
-        # Dummy fill for dyplot.runplot compatibility
         self["logz"] = np.linspace(logl.min(), logl.max(), len(logl))
         self["logzerr"] = np.zeros_like(self["logz"])
-        # Approximate importance weights vs iterations
         weights = np.exp(logwt - logwt.max())
         self["logvol"] = np.linspace(0, -20, len(logl))
         self["niter"] = len(logl)
 
-        # dyplot checks for these
         self["samples_id"] = np.arange(len(logl))
         self["samples_batch"] = np.zeros(len(logl), dtype=int)
         self["samples_it"] = np.arange(len(logl))
         self["samples_u"] = np.random.uniform(size=samples.shape)
-        # Mock nlive evolution (descending at the end)
-        nlive_const = 500  # Make a guess
+        nlive_const = 500
         self["samples_n"] = np.ones(len(logl), dtype=int) * nlive_const
         decay_idx = int(len(logl) * 0.9)
         decay_sz = len(logl) - decay_idx
@@ -147,17 +102,10 @@ class DummyResults(dict):
                 nlive_const, 1, decay_sz
             ).astype(int)
 
-        # allow attribute access like dynesty Results
         self.__dict__.update(self)
 
 
-# ===========================================================================
-#  Metadata / data loaders
-# ===========================================================================
-
-
 def load_metadata(run_dir: Path) -> dict:
-    """Parse metadata.txt → dict."""
     meta: dict = {}
     mf = run_dir / "metadata.txt"
     if not mf.exists():
@@ -170,7 +118,6 @@ def load_metadata(run_dir: Path) -> dict:
         try:
             meta[k.strip()] = json.loads(v)
         except (json.JSONDecodeError, ValueError):
-            # sometimes boolean strings True/False bypass json depending on case
             if v == "True":
                 meta[k.strip()] = True
             elif v == "False":
@@ -181,16 +128,15 @@ def load_metadata(run_dir: Path) -> dict:
 
 
 def load_summary(run_dir: Path) -> dict:
-    """Parse summary.txt."""
     sf = run_dir / "summary.txt"
     result = {"logZ": None, "logZerr": None, "params": {}}
     if not sf.exists():
         return result
     for line in sf.read_text().splitlines():
         if line.startswith("logZ "):
-            result["logZ"] = float(line.split("=")[1])
+            result["logZ"] = float(line.split("=")[1])  # ty:ignore[invalid-assignment]
         elif line.startswith("logZerr"):
-            result["logZerr"] = float(line.split("=")[1])
+            result["logZerr"] = float(line.split("=")[1])  # ty:ignore[invalid-assignment]
         elif line and not line.startswith("logZ"):
             parts = line.split(":")
             if len(parts) < 2:
@@ -304,19 +250,11 @@ def load_samples_csv(run_dir: Path):
     return data, param_names, abd_cols, abd_names
 
 
-# ===========================================================================
-#  1. dynesty.plotting Summary (runplot & traceplot)
-# ===========================================================================
-
-
 def plot_dynesty_summary(run_dir: Path, plot_dir: Path, meta: dict) -> None:
-    """Use dyplot.runplot and dyplot.traceplot to mimic exact dynesty visuals."""
     samples_phys, logwt, logl, param_names = load_posterior_weighted(run_dir)
     if samples_phys is None:
-        print("  [SKIP] dynesty summary plots – no posterior_weighted.csv")
         return
 
-    # Attempt to load results.pkl if it exists, otherwise use Mock
     pkl_file = run_dir / "results.pkl"
     if pkl_file.exists():
         import pickle
@@ -324,12 +262,11 @@ def plot_dynesty_summary(run_dir: Path, plot_dir: Path, meta: dict) -> None:
         with open(pkl_file, "rb") as f:
             res = pickle.load(f)
     else:
-        res = DummyResults(samples_phys, logwt, logl)
+        print("No results.pkl file, skipping dynesty summary")
+        return 
 
-    # 1A. runplot
     try:
         fig, axes = dyplot.runplot(res)
-        # Double all text sizes
         for obj in fig.findobj(mtext.Text):
             try:
                 obj.set_fontsize(obj.get_fontsize() * 2)
@@ -341,17 +278,14 @@ def plot_dynesty_summary(run_dir: Path, plot_dir: Path, meta: dict) -> None:
 
 
 def plot_traceplot(run_dir: Path, plot_dir: Path, meta: dict) -> None:
-    """Custom traceplot using samples.csv (y-axis log-scaled, x-axis logL)."""
     try:
         data, s_names, abd_cols, abd_names = load_samples_csv(run_dir)
         if data is None:
             print("  [SKIP] traceplot - no samples.csv")
             return
 
-        # logL is the last column in data
         logL_vals = data[:, -1]
 
-        # Only plot the first parameter (Lambda / rho0)
         i = 0
 
         fig = plt.figure(figsize=(12, 4), facecolor="white")
@@ -364,20 +298,15 @@ def plot_traceplot(run_dir: Path, plot_dir: Path, meta: dict) -> None:
 
         x_vals = data[:, i]
 
-        # Trace plot (left)
         ax_trace.scatter(logL_vals, x_vals, c=logL_vals, cmap=cmap, s=0.8, alpha=0.9)
         ax_trace.set_yscale("log")
         ax_trace.set_ylabel(s_names[i], fontsize=32)
         ax_trace.set_xlabel(r"$\log L$", fontsize=32)
         ax_trace.tick_params(labelsize=28)
 
-        # Marginal PDF (right)
-        # Attempt to load posterior to draw the true marginal PDF alongside the trace.
-        # If not available (e.g. preliminary run), we just draw a raw histogram of the samples instead.
         samples_phys, logwt, logl, param_names = load_posterior_weighted(run_dir)
         if samples_phys is not None and i < samples_phys.shape[1]:
             p_vals = samples_phys[:, i]
-            # Ensure strictly positive for log scale
             mask = p_vals > 0
             p_vals = p_vals[mask]
 
@@ -386,7 +315,6 @@ def plot_traceplot(run_dir: Path, plot_dir: Path, meta: dict) -> None:
             w /= w.sum()
             w = w[mask]
 
-            # Using KDE approximation for log parameter
             from scipy.stats import gaussian_kde
 
             log_p_vals = np.log10(p_vals)
@@ -396,14 +324,11 @@ def plot_traceplot(run_dir: Path, plot_dir: Path, meta: dict) -> None:
             x_d = kde(log_y_d)
             y_d = 10**log_y_d
 
-            # Plot sideways density (y is param, x is density) to match dynesty
             ax_marg.fill_betweenx(y_d, 0, x_d, alpha=0.6, color="blue")
 
             median = np.percentile(p_vals, 50)
             ax_marg.axhline(median, color="red", lw=1.5)
         else:
-            # Fallback for preliminary plots without posterior weights
-            # Just do a weighted histogram on the last 20% of samples as a rough approximation
             hist_sz = int(len(x_vals) * 0.2)
             if hist_sz > 0:
                 p_vals = x_vals[-hist_sz:]
@@ -415,8 +340,6 @@ def plot_traceplot(run_dir: Path, plot_dir: Path, meta: dict) -> None:
                 counts, _ = np.histogram(log_p_vals, bins=bins, density=True)
                 y_d = 10 ** (0.5 * (bins[:-1] + bins[1:]))
 
-                # Fill between for histogram steps horizontally
-                # (For exactness we could use step, but fill_betweenx with steps is tedious, just draw normal fill)
                 ax_marg.fill_betweenx(
                     y_d, 0, counts, alpha=0.6, color="gray", step="mid"
                 )
@@ -425,12 +348,9 @@ def plot_traceplot(run_dir: Path, plot_dir: Path, meta: dict) -> None:
                 ax_marg.axhline(median, color="red", lw=1.5)
 
         ax_marg.set_yscale("log")
-        # Set Y limits to match trace plot
         ax_marg.set_ylim(ax_trace.get_ylim())
 
-        # Format marginal
         ax_marg.set_xlabel("Density", fontsize=28)
-        # Remove y labels on marginal since they are visually aligned with the trace
         ax_marg.set_yticklabels([])
         ax_marg.tick_params(labelsize=24)
 
@@ -439,34 +359,24 @@ def plot_traceplot(run_dir: Path, plot_dir: Path, meta: dict) -> None:
         print(f"  [ERROR] Custom traceplot failed: {e}")
 
 
-# ===========================================================================
-#  3. 3-D scatter with weights
-# ===========================================================================
-
-
 def plot_3d_scatter(run_dir: Path, plot_dir: Path, meta: dict) -> None:
-    """3-D scatter plot of first 3 params, dot size/colour = posterior weight (or logL if preliminary).
-    The first parameter (Lambda/rho0) is put on the Z-axis for a horizontal display.
-    """
+
     samples_phys, logwt, logl, param_names = load_posterior_weighted(run_dir)
     is_preliminary = False
 
     if samples_phys is None or samples_phys.shape[1] < 1:
-        # Fallback to samples.csv for preliminary runs
         data, param_names, _, _ = load_samples_csv(run_dir)
         if data is None or data.shape[1] < 1:
             return
         is_preliminary = True
         samples_phys = data[:, : len(param_names)]
-        logwt = data[:, -1]  # using logL directly for colors
+        logwt = data[:, -1]
 
     model_name = meta.get("model", run_dir.name)
     ndim = samples_phys.shape[1]
 
     if is_preliminary:
-        # For preliminary, log L represents color instead of weights
         weights = logwt
-        # Just use logL normalized to [0, 1] for sizes
         w_sizes = (weights - weights.min()) / (weights.max() - weights.min() + 1e-10)
     else:
         weights = np.exp(logwt - logwt.max())
@@ -477,7 +387,6 @@ def plot_3d_scatter(run_dir: Path, plot_dir: Path, meta: dict) -> None:
     if n_show < 3:
         return
 
-    # To make display horizontal, map param 0 -> Z, param 1 -> X, param 2 -> Y
     x_idx, y_idx, z_idx = 1, 2, 0
 
     x = samples_phys[:, x_idx]
@@ -491,8 +400,6 @@ def plot_3d_scatter(run_dir: Path, plot_dir: Path, meta: dict) -> None:
     ax = fig.add_subplot(111, projection="3d")
     ax.set_facecolor("white")
 
-    # Shuffle so high weights aren't all drawn last or first deterministically,
-    # but we sort by weight to ensure high weights are drawn ON TOP
     sort_idx = np.argsort(weights)
     x = x[sort_idx]
     y = y[sort_idx]
@@ -531,13 +438,8 @@ def plot_3d_scatter(run_dir: Path, plot_dir: Path, meta: dict) -> None:
     _save(fig, plot_dir / "samples_3d_weights.png")
 
 
-# ===========================================================================
-#  4. Abundance corner (posterior vs SBBN overlay)
-# ===========================================================================
-
-# Always plot all four abundances (Li7 included even if not used in NS)
 ABD_NAMES = ["Yp", "DoH", "He3oH", "Li7oH"]
-# LaTeX labels: primordial mass fraction Y_P and ratios ^n X / H (GetDist adds $ wrapper)
+
 ABD_LABELS = [
     r"Y_P",
     r"\mathrm{D}/\mathrm{H}",
@@ -579,7 +481,7 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
     data, param_names, abd_cols, abd_names = load_samples_csv(run_dir)
 
     if data is None:
-        print("  [SKIP] abundance corner – no samples.csv found.")
+        print("  [SKIP] abundance corner   no samples.csv found.")
         return
 
     model_name = meta.get("model", run_dir.name)
@@ -595,16 +497,13 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
         distances, indices = tree.query(uw_samples, k=1)
         mapped_abundances = data[indices, abd_cols]
 
-    # Always all four: Yp, D/H, He3/H, Li7/H (columns 0..3 in abd_cols)
     active_cols = [0, 1, 2, 3]
     abd = mapped_abundances[:, active_cols]
 
-    # Optional SBBN overlay (same abundance ordering)
     abd_sbbn = _load_sbbn_abundances()
 
     if HAS_GETDIST:
         try:
-            # Slight extra smoothing for 1D and 2D (not a lot)
             mcs = []
             labels = []
             if abd_sbbn is not None:
@@ -634,20 +533,20 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
                 g.settings.axes_fontsize = 20
                 g.settings.axes_labelsize = 24
                 g.settings.lab_fontsize = 24
-                # SBBN in red, NP in blue
+
                 g.settings.solid_colors = ["#d62728", "#1f77b4"]
                 g.settings.num_plot_contours = 2
                 g.settings.figure_legend_loc = "upper right"
                 g.triangle_plot(mcs, filled=True, legend_labels=labels)
             gfig = g.fig
-            for legend in gfig.legends:
+            for legend in gfig.legends:  # ty:ignore[unresolved-attribute]
                 for text in legend.get_texts():
                     text.set_fontsize(text.get_fontsize() * 2)
-            # Mean ± sigma above each 1D marginal on the main diagonal only (NP samples only)
+
             means = np.mean(abd, axis=0)
             sigmas = np.std(abd, axis=0)
             for i in range(N_ABD):
-                diag_ax = g.subplots[i][i]  # diagonal 1D panel for param i
+                diag_ax = g.subplots[i][i]  # ty:ignore[not-subscriptable]
                 txt = f"{means[i]:.3g} $\\pm$ {sigmas[i]:.3g}"
                 diag_ax.text(
                     0.5,
@@ -662,11 +561,13 @@ def plot_abundance_corner(run_dir: Path, plot_dir: Path, meta: dict) -> None:
             stem = "abundance_corner"
             for ext in PLOT_EXTENSIONS:
                 out = plot_dir / (stem + ext)
-                gfig.savefig(out, dpi=150, bbox_inches="tight", facecolor="white")
-                print(f"  → {out.name}")
+                gfig.savefig(out, dpi=150, bbox_inches="tight", facecolor="white")  # ty:ignore[unresolved-attribute]
+                print(f"    {out.name}")
             plt.close(gfig)
         except Exception as exc:
-            print(f"  [WARNING] GetDist abundance corner failed: {exc}, using matplotlib fallback")
+            print(
+                f"  [WARNING] GetDist abundance corner failed: {exc}, using matplotlib fallback"
+            )
             _plot_abundance_corner_matplotlib(abd, model_label, plot_dir, abd_sbbn)
     else:
         _plot_abundance_corner_matplotlib(abd, model_label, plot_dir, abd_sbbn)
@@ -690,9 +591,9 @@ def _plot_abundance_corner_matplotlib(
     )
     if n_abd == 1:
         axes = np.array([[axes]])
-    # Matplotlib needs $ for math; GetDist adds $ automatically
+
     labels = [f"${lab}$" for lab in ABD_LABELS[:n_abd]]
-    # Font sizes 2x (was 10 -> 20)
+
     lab_fs, tick_fs = 20, 24
     for row in range(n_abd):
         for col in range(n_abd):
@@ -706,16 +607,24 @@ def _plot_abundance_corner_matplotlib(
             x_sbbn = abd_sbbn[:, col] if abd_sbbn is not None else None
             y_sbbn = abd_sbbn[:, row] if abd_sbbn is not None else None
             if row == col:
-                # Smoothed 1D: KDE – NP in blue
                 try:
                     kde = gaussian_kde(xdata, bw_method=0.2)
                     x_min, x_max = xdata.min(), xdata.max()
                     pad = (x_max - x_min) * 0.1 or 1e-10
                     xs = np.linspace(x_min - pad, x_max + pad, 200)
-                    ax.fill_between(xs, kde(xs), alpha=0.8, color="#1f77b4", edgecolor="none")
+                    ax.fill_between(
+                        xs, kde(xs), alpha=0.8, color="#1f77b4", edgecolor="none"
+                    )
                 except Exception:
-                    ax.hist(xdata, bins=40, density=True, color="#1f77b4", alpha=0.8, edgecolor="none")
-                # Optional SBBN 1D KDE in red (no mean/std text)
+                    ax.hist(
+                        xdata,
+                        bins=40,
+                        density=True,
+                        color="#1f77b4",
+                        alpha=0.8,
+                        edgecolor="none",
+                    )
+
                 if x_sbbn is not None:
                     try:
                         kde_s = gaussian_kde(x_sbbn, bw_method=0.2)
@@ -731,11 +640,19 @@ def _plot_abundance_corner_matplotlib(
                             alpha=0.9,
                         )
                 mean, sigma = np.mean(xdata), np.std(xdata)
-                ax.text(0.5, 1.08, f"{mean:.3g} $\\pm$ {sigma:.3g}", transform=ax.transAxes, ha="center", va="top", fontsize=15, clip_on=False)
+                ax.text(
+                    0.5,
+                    1.08,
+                    f"{mean:.3g} $\\pm$ {sigma:.3g}",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="top",
+                    fontsize=15,
+                    clip_on=False,
+                )
                 if col == 0:
                     ax.set_ylabel("density", fontsize=lab_fs)
             else:
-                # Smoothed 2D: KDE on grid – NP in blue
                 try:
                     kde2 = gaussian_kde(np.vstack([xdata, ydata]), bw_method=0.25)
                     x_min, x_max = xdata.min(), xdata.max()
@@ -748,18 +665,34 @@ def _plot_abundance_corner_matplotlib(
                     Z = kde2(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
                     ax.contourf(X, Y, Z, levels=12, cmap="Blues", alpha=0.8)
                 except Exception:
-                    ax.scatter(xdata, ydata, c="#1f77b4", s=2.5, alpha=0.3, linewidths=0)
-                # Optional SBBN 2D contours in red
+                    ax.scatter(
+                        xdata, ydata, c="#1f77b4", s=2.5, alpha=0.3, linewidths=0
+                    )
+
                 if x_sbbn is not None and y_sbbn is not None:
                     try:
-                        kde2s = gaussian_kde(np.vstack([x_sbbn, y_sbbn]), bw_method=0.25)
+                        kde2s = gaussian_kde(
+                            np.vstack([x_sbbn, y_sbbn]), bw_method=0.25
+                        )
                         xs_s = np.linspace(x_sbbn.min(), x_sbbn.max(), 60)
                         ys_s = np.linspace(y_sbbn.min(), y_sbbn.max(), 60)
                         Xs, Ys = np.meshgrid(xs_s, ys_s)
-                        Zs = kde2s(np.vstack([Xs.ravel(), Ys.ravel()])).reshape(Xs.shape)
-                        ax.contour(Xs, Ys, Zs, levels=4, colors="#d62728", linewidths=1.0, alpha=0.9)
+                        Zs = kde2s(np.vstack([Xs.ravel(), Ys.ravel()])).reshape(
+                            Xs.shape
+                        )
+                        ax.contour(
+                            Xs,
+                            Ys,
+                            Zs,
+                            levels=4,
+                            colors="#d62728",
+                            linewidths=1.0,
+                            alpha=0.9,
+                        )
                     except Exception:
-                        ax.scatter(x_sbbn, y_sbbn, c="#d62728", s=2.0, alpha=0.4, linewidths=0)
+                        ax.scatter(
+                            x_sbbn, y_sbbn, c="#d62728", s=2.0, alpha=0.4, linewidths=0
+                        )
             if row == n_abd - 1:
                 ax.set_xlabel(labels[col], fontsize=lab_fs)
             else:
@@ -772,147 +705,6 @@ def _plot_abundance_corner_matplotlib(
     _save(fig, plot_dir / "abundance_corner.png")
 
 
-# ===========================================================================
-#  5. GetDist parameter corner (non-CC models)
-# ===========================================================================
-
-
-def plot_params_corner_getdist(
-    run_dir: Path, plot_dir: Path, meta: dict, summary: dict
-) -> None:
-    """GetDist triangle plot of all parameters (EDE + nuisance) with white aesthetics."""
-    if not HAS_GETDIST:
-        return
-
-    uw_samples, param_names_uw = load_posterior_unweighted(run_dir)
-    samples_phys, logwt, logl, param_names_w = load_posterior_weighted(run_dir)
-
-    if uw_samples is None and samples_phys is None:
-        data, param_names, _, _ = load_samples_csv(run_dir)
-        if data is None:
-            return
-        N = max(1, int(len(data) * 0.3))
-        uw_samples = data[-N:, : len(param_names)]
-        param_names_uw = param_names
-
-    model_name = meta.get("model", run_dir.name)
-
-    if uw_samples is not None and len(uw_samples) > 10:
-        gd_samps = uw_samples
-        gd_names = param_names_uw
-        gd_weights = None
-    else:
-        gd_samps = samples_phys
-        gd_names = param_names_w
-        w = np.exp(logwt - logwt.max())
-        gd_weights = w / w.sum()
-
-    # Apply log10 scaling to positive parameters that span many orders of magnitude.
-    log_param_names = {"Lambda_MeV4", "rho0_MeV4", "a_t", "rho_t_MeV4"}
-    log_indices = [i for i, name in enumerate(gd_names) if name in log_param_names]
-    if log_indices:
-        valid_mask = np.ones(len(gd_samps), dtype=bool)
-        for idx in log_indices:
-            valid_mask &= gd_samps[:, idx] > 0
-        if not np.all(valid_mask):
-            gd_samps = gd_samps[valid_mask]
-            if gd_weights is not None:
-                gd_weights = gd_weights[valid_mask]
-        for idx in log_indices:
-            gd_samps[:, idx] = np.log10(gd_samps[:, idx])
-
-    rho0_label = (
-        r"\log_{10}(\rho_{T,0}~[\mathrm{MeV}^4])"
-        if model_name == "TempDependent"
-        else r"\log_{10}(\rho_0~[\mathrm{MeV}^4])"
-    )
-    tex_map = {
-        "Lambda_MeV4": r"\log_{10}(\Lambda~[\mathrm{MeV}^4])",
-        "rho0_MeV4": rho0_label,
-        "alpha": r"\alpha",
-        "a_t": r"\log_{10}(a_t)",
-        "rho_t_MeV4": r"\log_{10}(\rho_t~[\mathrm{MeV}^4])",
-        "w": r"w",
-        "K": r"K",
-        "gamma": r"\gamma",
-        "tau_n": r"\tau_n~[\mathrm{s}]",
-        "Omegabh2": r"\Omega_b h^2",
-        "p_npdg": r"p_{np\gamma}",
-        "p_dpHe3g": r"p_{d\,{^3He}\gamma}",
-    }
-    labels = [tex_map.get(n, n) for n in gd_names]
-
-    if gd_weights is not None:
-        keep = gd_weights > 1e-30
-        gd_samps = gd_samps[keep]
-        gd_weights = gd_weights[keep]
-        gd_weights /= gd_weights.sum()
-
-    try:
-        mc = MCSamples(
-            samples=gd_samps,
-            weights=gd_weights,
-            names=gd_names,
-            labels=labels,
-            label=model_name,
-            settings={"smooth_scale_2D": 0.5, "smooth_scale_1D": 0.5},
-        )
-
-        with plt.style.context("default"):
-            g = gdplots.getSubplotPlotter(width_inch=12)
-            g.settings.axes_fontsize = 20
-            g.settings.axes_labelsize = 24
-            g.settings.lab_fontsize = 24
-            g.settings.title_limit_labels = True
-            g.settings.solid_colors = ["#1f77b4"]
-            g.settings.num_plot_contours = 2
-            g.settings.alpha_factor_contour_lines = 1.0
-
-            g.triangle_plot([mc], filled=True)
-
-            gfig = g.fig
-            for ax in gfig.axes:
-                leg = ax.get_legend()
-                if leg is not None:
-                    leg.set_visible(False)
-            summ_params = summary.get("params", {})
-            for ax in gfig.axes:
-                xl, yl = ax.get_xlabel(), ax.get_ylabel()
-                xn = (
-                    xl.replace("$", "").strip()
-                    if getattr(xl, "replace", None)
-                    else None
-                )
-                yn = (
-                    yl.replace("$", "").strip()
-                    if getattr(yl, "replace", None)
-                    else None
-                )
-                xsp = summ_params.get(xn, {})
-                ysp = summ_params.get(yn, {})
-                if xsp and xsp.get("median"):
-                    ax.axvline(
-                        xsp["median"], color=OBS_COLOR, lw=0.8, ls="--", alpha=0.6
-                    )
-                if ysp and ysp.get("median"):
-                    ax.axhline(
-                        ysp["median"], color=OBS_COLOR, lw=0.8, ls="--", alpha=0.6
-                    )
-
-            stem = "params_corner_getdist"
-            for ext in PLOT_EXTENSIONS:
-                out = plot_dir / (stem + ext)
-                gfig.savefig(out, dpi=150, bbox_inches="tight", facecolor="white")
-                print(f"  → {out.name}")
-            plt.close(gfig)
-
-    except Exception as exc:
-        print(f"  [ERROR] GetDist corner failed: {exc}")
-
-
-# ===========================================================================
-#  Dispatcher
-# ===========================================================================
 
 CORNER_MODELS = {"Linear", "TempDependent", "Polytropic", "Poly"}
 
@@ -921,7 +713,7 @@ def process_run(run_dir: Path) -> None:
     sf = run_dir / "summary.txt"
     samples_f = run_dir / "samples.csv"
     if not samples_f.exists():
-        print(f"[SKIP] {run_dir.name} – no samples.csv")
+        print(f"[SKIP] {run_dir.name}   no samples.csv")
         return
 
     is_preliminary = not sf.exists()
@@ -934,41 +726,23 @@ def process_run(run_dir: Path) -> None:
     model = meta.get("model", "")
 
     if is_preliminary:
-        print(f"\n▶  {run_dir.name}  [{model}] (PRELIMINARY - still running)")
+        print(f"\n   {run_dir.name}  [{model}] (PRELIMINARY - still running)")
         pd = run_dir / "preliminary_plots"
         pd.mkdir(exist_ok=True)
-        print("  [1/5] Dynesty Summary runplot – skipped (preliminary)")
+        print("  [1/3] Dynesty Summary runplot   skipped (preliminary)")
     else:
         pd = _mk_plotdir(run_dir)
-        print(f"\n▶  {run_dir.name}  [{model}]")
-        print("  [1/5] Dynesty Summary runplot ...")
+        print(f"\n   {run_dir.name}  [{model}]")
+        print("  [1/3] Dynesty Summary runplot ...")
         plot_dynesty_summary(run_dir, pd, meta)
 
-    print("  [2/5] Custom Traceplot ...")
+    print("  [2/3] Custom Traceplot ...")
     plot_traceplot(run_dir, pd, meta)
 
-    print("  [3/5] 3-D scatter with raw samples.csv ...") if is_preliminary else print(
-        "  [3/5] 3-D scatter with weights ..."
-    )
-    plot_3d_scatter(run_dir, pd, meta)
-
     print(
-        "  [4/5] Abundance corner with raw samples.csv ..."
-    ) if is_preliminary else print("  [4/5] Abundance corner ...")
+        "  [3/3] Abundance corner with raw samples.csv ..."
+    ) if is_preliminary else print("  [3/3] Abundance corner ...")
     plot_abundance_corner(run_dir, pd, meta)
-
-    if model in CORNER_MODELS:
-        print(
-            "  [5/5] GetDist parameter corner with last 30% samples ..."
-        ) if is_preliminary else print("  [5/5] GetDist parameter corner ...")
-        plot_params_corner_getdist(run_dir, pd, meta, summary)
-    else:
-        print(f"  [5/5] Parameter corner – skipped (model={model!r})")
-
-
-# ===========================================================================
-#  CLI
-# ===========================================================================
 
 
 def main() -> None:

@@ -406,7 +406,7 @@ num_reactions = 63
 # Credit for dataset to PRIMAT and NACRE II:
 # Physics Reports, 04, (2018) 005 [arXiv:1801.08023]
 # MNRAS 2021 [arXiv:2011.11320]
-# Nuclear Physics A 918 (2013) 61–169
+# Nuclear Physics A 918 (2013) 61 169
 # http://www.astro.ulb.ac.be/nacreii
 # Below, 12 or 63 tabulated nuclear rates in log space, T9 = = np.logspace(-3,1,500)
 ####################################

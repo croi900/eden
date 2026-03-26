@@ -1,3 +1,4 @@
+import traceback
 import argparse
 import json
 import multiprocessing as mp
@@ -20,14 +21,12 @@ import corner
 from eden_model import BaseEDEModel, make_model
 
 
-#  BBN observables
 Yp_obs, Yp_sig = 0.245, 0.003
 DoH_obs, DoH_sig = 2.547, 0.029
 He3oH_obs, He3oH_sig = 1.08, 0.12
 Li7oH_obs, Li7oH_sig = 1.6, 0.3
 
 
-#  Module-level globals for subprocess workers
 _GLOBAL_MODEL: BaseEDEModel | None = None
 _SAMPLES_FILE: str = ""
 _FILE_LOCK = threading.Lock()
@@ -40,7 +39,6 @@ def _worker_init(model_name: str, samples_file: str) -> None:
     _FILE_LOCK = threading.Lock()
 
 
-#  NestedSampler
 class NestedSampler:
     def __init__(
         self,
@@ -71,7 +69,6 @@ class NestedSampler:
             param_args, scale = priors[k]
             self.scales.append(scale)
             if scale == "log":
-                # param_args are already base-10 exponents, e.g. (-20, -2) => 10^-20 to 10^-2
                 self.lo.append(param_args[0])
                 self.hi.append(param_args[1])
             else:
@@ -81,7 +78,6 @@ class NestedSampler:
         self.lo = np.array(self.lo)
         self.hi = np.array(self.hi)
 
-        #  run directory
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         tag = f"_{run_label}" if run_label else ""
         run_name = f"{model.model_name}{tag}_{timestamp}"
@@ -93,8 +89,6 @@ class NestedSampler:
         self.posterior_uw_file = str(self.run_dir / "posterior_unweighted.csv")
         self.summary_file = str(self.run_dir / "summary.txt")
         self.metadata_file = str(self.run_dir / "metadata.txt")
-
-    #  prior helpers
 
     def prior_transform(self, u: np.ndarray) -> np.ndarray:
         v = np.empty_like(u)
@@ -112,8 +106,6 @@ class NestedSampler:
                 physical[i] = 10.0 ** theta[i]
         return physical
 
-    #  likelihood
-
     def log_likelihood(self, theta: np.ndarray) -> float:
         model = _GLOBAL_MODEL
         physical = self._physical_params(theta)
@@ -124,11 +116,6 @@ class NestedSampler:
             print(f"Error in log_likelihood: {traceback.format_exc()}")
             sys.stdout.flush()
             return -1e300
-
-        # if not (0.0 < Yp < 1.0):
-        #     print(f"Yp out of bounds: {Yp}")
-        #     sys.stdout.flush()
-        #     return -1e300
 
         chi2 = (
             (Yp - Yp_obs) ** 2 / Yp_sig**2
@@ -148,11 +135,6 @@ class NestedSampler:
 
         return logl
 
-    # dynesty built-in progress bar works best for Dynamic Nested Sampling
-    # so we will use print_progress=True in run_nested instead of a custom loop.
-
-    #  main run
-
     def run(self) -> dynesty.results.Results:
         global _GLOBAL_MODEL, _SAMPLES_FILE, _FILE_LOCK
         print(
@@ -171,7 +153,6 @@ class NestedSampler:
 
         self._write_metadata()
 
-        #  pool / single-thread branch
         if self.pool is not None:
             _GLOBAL_MODEL = self.model
             _SAMPLES_FILE = self.samples_file
@@ -217,8 +198,6 @@ class NestedSampler:
         self._save(results)
         return results
 
-    #  output helpers
-
     def _print_summary(self, results: dynesty.results.Results) -> None:
         print("\n" + "=" * 60)
         print(f"ln Z  = {results.logz[-1]:.3f} ± {results.logzerr[-1]:.3f}")
@@ -241,7 +220,6 @@ class NestedSampler:
         weights = np.exp(results.logwt - results.logz[-1])
         samples_phys = np.array([self._physical_params(s) for s in results.samples])
 
-        #  weighted posterior (CSV)
         w_header = " ".join(self.param_names) + " logwt loglike"
         w_data = np.column_stack([samples_phys, results.logwt, results.logl])
         np.savetxt(
@@ -252,9 +230,8 @@ class NestedSampler:
             comments="#",
             fmt="%.10e",
         )
-        print(f"Weighted posterior   → {self.posterior_w_file}")
+        print(f"Weighted posterior     {self.posterior_w_file}")
 
-        #  unweighted / resampled posterior (CSV)
         rng = np.random.default_rng(0)
         n_resample = len(weights)
         idx = rng.choice(
@@ -270,9 +247,8 @@ class NestedSampler:
             comments="#",
             fmt="%.10e",
         )
-        print(f"Unweighted posterior → {self.posterior_uw_file}")
+        print(f"Unweighted posterior   {self.posterior_uw_file}")
 
-        #  summary text
         with open(self.summary_file, "w") as f:
             f.write(f"logZ    = {results.logz[-1]:.6f}\n")
             f.write(f"logZerr = {results.logzerr[-1]:.6f}\n")
@@ -286,12 +262,12 @@ class NestedSampler:
                     f"68CI=[{q16:.6e},{q84:.6e}]  "
                     f"95UL={q95:.6e}\n"
                 )
-        print(f"Summary              → {self.summary_file}")
+        print(f"Summary                {self.summary_file}")
 
         pkl_file = os.path.join(self.run_dir, "results.pkl")
         with open(pkl_file, "wb") as f:
             pickle.dump(results, f)
-        print(f"Dynesty Results      → {pkl_file}")
+        print(f"Dynesty Results        {pkl_file}")
 
         self._generate_plots(results, samples_phys, weights)
 
@@ -385,7 +361,7 @@ class NestedSampler:
         with open(self.metadata_file, "w") as f:
             for k, v in meta.items():
                 f.write(f"{k}: {json.dumps(v) if isinstance(v, (dict, list)) else v}\n")
-        print(f"Metadata             → {self.metadata_file}")
+        print(f"Metadata               {self.metadata_file}")
 
 
 #  CLI
@@ -441,7 +417,6 @@ def main() -> None:
 
     model = make_model(args.model)
 
-    # For Polytropic, use a fixed gamma set via CLI flag (priors are a_t, rho_t).
     if args.model == "Polytropic":
         import PRyM.PRyM_init as PRyMini
 
