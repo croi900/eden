@@ -265,7 +265,7 @@ class PolytropicModel(BaseEDEModel):
     # directly.
     PRIORS = {
         "a_t": ((-15.0, -2.0), "log"),
-        "rho_t_MeV4": ((-20.0, 5.0), "log"),
+        "rho_t_MeV4": ((-20.0, 10.0), "log"),
         **BBN_NUISANCE,
     }
 
