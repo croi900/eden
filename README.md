@@ -1,10 +1,10 @@
-# EDEN: Early Dark Energy Models
+# EDEN: Early Dark Energy in Nucleosynthesis
 
 A Python package for modeling and analyzing Early Dark Energy (EDE) using Big Bang Nucleosynthesis (BBN) constraints and cosmological analysis.
 
 ## Overview
 
-EDEN provides a framework for exploring various Early Dark Energy models during the primordial universe. The package integrates with the PRyM BBN solver and provides tools for parameter inference, visualization, and analysis of cosmological observables.
+EDEN provides a framework for exploring various Early Dark Energy models during the primordial universe. The package integrates with the PRyMordial BBN code and provides tools for parameter upper limit inference, visualization, and analysis of cosmological observables.
 
 ## Project Structure
 
@@ -71,9 +71,6 @@ cd eden
 
 # Install with uv (recommended)
 uv sync
-
-# Or install with pip
-pip install -e .
 ```
 
 ### Requirements
@@ -85,90 +82,14 @@ pip install -e .
 - Parallel processing: Dask, joblib, schwimmbad
 - Visualization: Matplotlib, Seaborn
 
-## Usage
-
-### Basic Model Creation
-
-```python
-from eden_model import make_model
-
-# Create a model instance
-model = make_model("Linear")
-
-# Access model properties
-print(f"Parameters: {model.param_names}")
-print(f"Dimensions: {model.ndim}")
-print(f"Priors: {model.param_priors}")
-
-# Get metadata
-metadata = model.metadata()
-```
-
-### Computing Abundances
-
-```python
-# Configure and compute primordial abundances
-params = {
-    "rho0_MeV4": -15,
-    "w": -0.5,
-    "tau_n": 879.4,
-    "Omegabh2": 0.0223,
-    "p_npdg": 0,
-    "p_dpHe3g": 0
-}
-
-abundances = model.abundances(*params.values())
-# Returns array of primordial abundances (n, p, He4, He3, Li7, etc.)
-```
-
 ### Parameter Inference
 
-Use the nested sampling tools in `ns.py` for Bayesian parameter estimation with various samplers:
-- Dynesty (dynamic nested sampling)
-- emcee (MCMC sampling)
-- Cobaya (hierarchical sampling)
+Use the nested sampling tools in `ns.py` for Bayesian parameter estimation with Dynesty.
 
 ### Visualization
 
 Create publication-quality plots using functions in `plot_ns.py`:
 - Corner plots of posterior distributions
-- Trace plots for convergence analysis
 - Model comparison visualizations
 
-## Configuration
 
-### Model Flags
-
-Control BBN computation with flags in `BaseEDEModel`:
-
-```python
-model.compute_bckg_flag = True      # Background computation
-model.compute_nTOp_flag = False     # n→p rates
-model.nacreii_flag = True           # NACRE II rates
-model.smallnet_flag = True          # Small nuclear network
-model.dynamical_a = True            # Dynamic scale factor evolution
-```
-
-## References
-
-The package uses the PRyM BBN solver for accurate primordial abundance calculations. Early Dark Energy models are constrained using:
-- Big Bang Nucleosynthesis (BBN) constraints
-- Cosmic Microwave Background (CMB) data
-- Baryon Acoustic Oscillation (BAO) measurements
-- Hubble constant measurements
-
-## Development
-
-This project uses:
-- **uv** for fast dependency management
-- **Python 3.13+** for modern language features
-- Type hints for code clarity
-- Numba for numerical performance
-
-## License
-
-[License information to be added]
-
-## Contact
-
-For questions or issues, please open an issue on GitHub or contact the repository maintainer.
