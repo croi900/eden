@@ -92,4 +92,83 @@ Create publication-quality plots using functions in `plot_ns.py`:
 - Corner plots of posterior distributions
 - Model comparison visualizations
 
+### Citations
+
+```bibtex
+@article{Burns:2024prymordial,
+    author = "Burns, Anne-Katherine and Tait, Tim M. P. and Valli, Mauro",
+    title = "{PRyMordial: the first three minutes, within and beyond the standard model}",
+    doi = "10.1140/epjc/s10052-024-12442-0",
+    journal = "Eur. Phys. J. C",
+    volume = "84",
+    number = "1",
+    pages = "86",
+    year = "2024"
+}
+
+@article{Speagle:2020,
+    author = {Speagle, Joshua S.},
+    title = "{dynesty: a dynamic nested sampling package for estimating Bayesian posteriors and evidences}",
+    journal = {Monthly Notices of the Royal Astronomical Society},
+    volume = {493},
+    number = {3},
+    pages = {3132-3158},
+    year = {2020},
+    month = {02},
+    issn = {0035-8711},
+    doi = {10.1093/mnras/staa278},
+    url = {https://doi.org/10.1093/mnras/staa278}
+}
+
+@software{Koposov:2024,
+    author       = {Sergey Koposov and others},
+    title        = {joshspeagle/dynesty: v2.1.4},
+    month        = jun,
+    year         = 2024,
+    publisher    = {Zenodo},
+    version      = {v2.1.4},
+    doi          = {10.5281/zenodo.12537467},
+    url          = {https://doi.org}
+}
+
+@inproceedings{Skilling:2004,
+    author = {Skilling, John},
+    title = "{Nested Sampling}",
+    booktitle = {Bayesian Inference and Maximum Entropy Methods in Science and Engineering: 24th International Workshop},
+    series = {AIP Conference Proceedings},
+    volume = {735},
+    pages = {395-405},
+    year = {2004},
+    doi = {10.1063/1.1835238},
+    url = {https://doi.org}
+}
+
+@article{Skilling:2006,
+    author = {Skilling, John},
+    title = "{Nested sampling for general Bayesian computation}",
+    journal = {Bayesian Analysis},
+    volume = {1},
+    number = {4},
+    pages = {833--859},
+    year = {2006},
+    doi = {10.1214/06-BA127},
+    url = {https://doi.org/10.1214/06-BA127}
+}
+
+@article{Feroz:2009,
+    author = {Feroz, F. and Hobson, M. P. and Bridges, M.},
+    title = "{MULTINEST: an efficient and robust Bayesian inference tool for cosmology and particle physics}",
+    journal = {Monthly Notices of the Royal Astronomical Society},
+    volume = {398},
+    number = {4},
+    pages = {1601-1614},
+    year = {2009},
+    month = {10},
+    issn = {0035-8711},
+    doi = {10.1111/j.1365-2966.2009.14548.x},
+    url = {https://doi.org}
+}
+```
+
+
 
